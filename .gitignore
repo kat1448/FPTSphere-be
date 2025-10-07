@@ -272,5 +272,3 @@ __pycache__/
 # tools/
 
 # End of https://www.toptal.com/developers/gitignore/api/aspnetcore
-FPTSphere_be/WebApi/appsettings.Development.json
-FPTSphere_be/WebApi/appsettings.json
