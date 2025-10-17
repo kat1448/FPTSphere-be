@@ -7,17 +7,13 @@ public partial class Location
 {
     public int LocationId { get; set; }
 
-    public string? LocationName { get; set; }
+    public string LocationName { get; set; } = null!;
 
-    public string? Address { get; set; }
+    public int Capacity { get; set; }
 
-    public string? Status { get; set; }
+    public string InternalCode { get; set; } = null!;
 
-    public int? CreatedBy { get; set; }
+    public bool IsBookable { get; set; }
 
-    public virtual User? CreatedByNavigation { get; set; }
-
-    public virtual ICollection<Device> Devices { get; set; } = new List<Device>();
-
-    public virtual ICollection<Task> Tasks { get; set; } = new List<Task>();
+    public string? MaintenanceNote { get; set; }
 }

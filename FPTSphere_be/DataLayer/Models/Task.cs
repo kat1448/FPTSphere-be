@@ -7,21 +7,19 @@ public partial class Task
 {
     public int TaskId { get; set; }
 
-    public int? EventId { get; set; }
+    public int EventId { get; set; }
 
-    public string? TaskName { get; set; }
+    public int AssignedToUserId { get; set; }
 
-    public string? Description { get; set; }
+    public string TaskDescription { get; set; } = null!;
 
-    public int? AssignedTo { get; set; }
+    public DateTime DueDate { get; set; }
 
-    public string? Status { get; set; }
+    public string Status { get; set; } = null!;
 
-    public virtual User? AssignedToNavigation { get; set; }
+    public DateTime? CompletionDate { get; set; }
 
-    public virtual Event? Event { get; set; }
+    public virtual User AssignedToUser { get; set; } = null!;
 
-    public virtual ICollection<Device> Devices { get; set; } = new List<Device>();
-
-    public virtual ICollection<Location> Locations { get; set; } = new List<Location>();
+    public virtual Event Event { get; set; } = null!;
 }

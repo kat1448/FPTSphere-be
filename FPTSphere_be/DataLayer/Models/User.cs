@@ -7,29 +7,27 @@ public partial class User
 {
     public int UserId { get; set; }
 
-    public string? FullName { get; set; }
+    public string GoogleId { get; set; } = null!;
 
-    public string? Email { get; set; }
+    public string Email { get; set; } = null!;
 
-    public string? PasswordHash { get; set; }
+    public string FullName { get; set; } = null!;
 
-    public string? Role { get; set; }
+    public string UserType { get; set; } = null!;
 
-    public string? Status { get; set; }
+    public bool IsAuthorized { get; set; }
 
-    public DateTime? CreatedAt { get; set; }
+    public string? DepartmentMajor { get; set; }
 
-    public virtual ICollection<Device> Devices { get; set; } = new List<Device>();
+    public string? ClassCode { get; set; }
 
-    public virtual ICollection<EventRegistration> EventRegistrations { get; set; } = new List<EventRegistration>();
+    public virtual ICollection<Assignment> Assignments { get; set; } = new List<Assignment>();
+
+    public virtual ICollection<EventInvitation> EventInvitations { get; set; } = new List<EventInvitation>();
 
     public virtual ICollection<Event> Events { get; set; } = new List<Event>();
 
-    public virtual ICollection<Location> Locations { get; set; } = new List<Location>();
-
-    public virtual ICollection<OauthLogin> OauthLogins { get; set; } = new List<OauthLogin>();
-
-    public virtual ICollection<Report> Reports { get; set; } = new List<Report>();
+    public virtual ICollection<StudentFeedback> StudentFeedbacks { get; set; } = new List<StudentFeedback>();
 
     public virtual ICollection<Task> Tasks { get; set; } = new List<Task>();
 }

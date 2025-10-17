@@ -1,0 +1,23 @@
+﻿using System;
+using System.Collections.Generic;
+
+namespace DataLayer.Models;
+
+public partial class EventInvitation
+{
+    public int InvitationId { get; set; }
+
+    public int EventId { get; set; }
+
+    public int UserId { get; set; }
+
+    public string Status { get; set; } = null!;
+
+    public DateTime? CheckInTime { get; set; }
+
+    public DateTime? CheckOutTime { get; set; }
+
+    public virtual Event Event { get; set; } = null!;
+
+    public virtual User User { get; set; } = null!;
+}
