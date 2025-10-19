@@ -25,9 +25,9 @@ public partial class User
 
     public virtual ICollection<EventInvitation> EventInvitations { get; set; } = new List<EventInvitation>();
 
+    public virtual ICollection<EventTask> EventTasks { get; set; } = new List<EventTask>();
+
     public virtual ICollection<Event> Events { get; set; } = new List<Event>();
 
     public virtual ICollection<StudentFeedback> StudentFeedbacks { get; set; } = new List<StudentFeedback>();
-
-    public virtual ICollection<Task> Tasks { get; set; } = new List<Task>();
 }

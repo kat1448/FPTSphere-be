@@ -24,6 +24,8 @@ public partial class LibraryDbContext : DbContext
 
     public virtual DbSet<EventInvitation> EventInvitations { get; set; }
 
+    public virtual DbSet<EventTask> EventTasks { get; set; }
+
     public virtual DbSet<ExternalResource> ExternalResources { get; set; }
 
     public virtual DbSet<FeedbackTemplate> FeedbackTemplates { get; set; }
@@ -34,13 +36,11 @@ public partial class LibraryDbContext : DbContext
 
     public virtual DbSet<StudentFeedback> StudentFeedbacks { get; set; }
 
-    public virtual DbSet<Task> Tasks { get; set; }
-
     public virtual DbSet<User> Users { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
 #warning To protect potentially sensitive information in your connection string, you should move it out of source code. You can avoid scaffolding the connection string by using the Name= syntax to read it from configuration - see https://go.microsoft.com/fwlink/?linkid=2131148. For more guidance on storing connection strings, see https://go.microsoft.com/fwlink/?LinkId=723263.
-        => optionsBuilder.UseSqlServer("Server=localhost;Database=EventManagementSystem;Trusted_Connection=True;TrustServerCertificate=True;");
+        => optionsBuilder.UseSqlServer("Server=localhost;Database=EventManagementSystem;Trusted_Connection=True;TrustServerCertificate=True");
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -155,6 +155,35 @@ public partial class LibraryDbContext : DbContext
                 .HasConstraintName("FK_Invitation_User");
         });
 
+        modelBuilder.Entity<EventTask>(entity =>
+        {
+            entity.HasKey(e => e.TaskId).HasName("PK__Tasks__0492148DE5616F0D");
+
+            entity.Property(e => e.TaskId).HasColumnName("task_id");
+            entity.Property(e => e.AssignedToUserId).HasColumnName("assigned_to_user_id");
+            entity.Property(e => e.CompletionDate)
+                .HasColumnType("datetime")
+                .HasColumnName("completion_date");
+            entity.Property(e => e.DueDate)
+                .HasColumnType("datetime")
+                .HasColumnName("due_date");
+            entity.Property(e => e.EventId).HasColumnName("event_id");
+            entity.Property(e => e.Status)
+                .HasMaxLength(50)
+                .IsUnicode(false)
+                .HasColumnName("status");
+            entity.Property(e => e.TaskDescription).HasColumnName("task_description");
+
+            entity.HasOne(d => d.AssignedToUser).WithMany(p => p.EventTasks)
+                .HasForeignKey(d => d.AssignedToUserId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_Task_User");
+
+            entity.HasOne(d => d.Event).WithMany(p => p.EventTasks)
+                .HasForeignKey(d => d.EventId)
+                .HasConstraintName("FK_Task_Event");
+        });
+
         modelBuilder.Entity<ExternalResource>(entity =>
         {
             entity.HasKey(e => e.ResourceId).HasName("PK__External__4985FC730CE71BBC");
@@ -265,35 +294,6 @@ public partial class LibraryDbContext : DbContext
                 .HasForeignKey(d => d.UserId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_Feedback_User");
-        });
-
-        modelBuilder.Entity<Task>(entity =>
-        {
-            entity.HasKey(e => e.TaskId).HasName("PK__Tasks__0492148DE5616F0D");
-
-            entity.Property(e => e.TaskId).HasColumnName("task_id");
-            entity.Property(e => e.AssignedToUserId).HasColumnName("assigned_to_user_id");
-            entity.Property(e => e.CompletionDate)
-                .HasColumnType("datetime")
-                .HasColumnName("completion_date");
-            entity.Property(e => e.DueDate)
-                .HasColumnType("datetime")
-                .HasColumnName("due_date");
-            entity.Property(e => e.EventId).HasColumnName("event_id");
-            entity.Property(e => e.Status)
-                .HasMaxLength(50)
-                .IsUnicode(false)
-                .HasColumnName("status");
-            entity.Property(e => e.TaskDescription).HasColumnName("task_description");
-
-            entity.HasOne(d => d.AssignedToUser).WithMany(p => p.Tasks)
-                .HasForeignKey(d => d.AssignedToUserId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK_Task_User");
-
-            entity.HasOne(d => d.Event).WithMany(p => p.Tasks)
-                .HasForeignKey(d => d.EventId)
-                .HasConstraintName("FK_Task_Event");
         });
 
         modelBuilder.Entity<User>(entity =>

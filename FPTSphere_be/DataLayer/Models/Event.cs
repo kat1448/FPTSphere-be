@@ -25,6 +25,8 @@ public partial class Event
 
     public virtual ICollection<EventInvitation> EventInvitations { get; set; } = new List<EventInvitation>();
 
+    public virtual ICollection<EventTask> EventTasks { get; set; } = new List<EventTask>();
+
     public virtual ICollection<ExternalResource> ExternalResources { get; set; } = new List<ExternalResource>();
 
     public virtual ICollection<InternalResourcesUsage> InternalResourcesUsages { get; set; } = new List<InternalResourcesUsage>();
@@ -36,6 +38,4 @@ public partial class Event
     public virtual Event? ParentEvent { get; set; }
 
     public virtual ICollection<StudentFeedback> StudentFeedbacks { get; set; } = new List<StudentFeedback>();
-
-    public virtual ICollection<Task> Tasks { get; set; } = new List<Task>();
 }
