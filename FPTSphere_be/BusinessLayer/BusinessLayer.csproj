@@ -15,9 +15,4 @@
     <ProjectReference Include="..\DataLayer\DataLayer.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Folder Include="Helper\" />
-    <Folder Include="Services\" />
-  </ItemGroup>
-
 </Project>
