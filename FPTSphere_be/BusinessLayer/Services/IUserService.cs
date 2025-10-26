@@ -13,6 +13,5 @@ namespace BusinessLayer.Services
         Task<UserDto?> GetByIdAsync(int id);
         Task<UserDto> CreateAsync(CreateUserDto dto);
         Task<bool> UpdateAsync(UpdateUserDto dto);
-        Task<bool> DeleteAsync(int id);
     }
 }

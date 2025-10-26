@@ -5,47 +5,62 @@ using System.Text;
 using System.Threading.Tasks;
 using AutoMapper;
 using BusinessLayer.DTOs;
+using DataLayer.Data;
 using DataLayer.Models;
 using DataLayer.Repositories;
+using Microsoft.EntityFrameworkCore;
 
 namespace BusinessLayer.Services
 {
     public class UserService : IUserService
     {
-        private readonly IUserRepository _repo;
+        private readonly EventDbContext _context;
         private readonly IMapper _mapper;
 
-        public UserService(IUserRepository repo, IMapper mapper)
+        public UserService(EventDbContext context, IMapper mapper)
         {
-            _repo = repo;
+            _context = context;
             _mapper = mapper;
         }
 
-        public async Task<IEnumerable<UserDto>> GetAllAsync()
-        {
-            var users = await _repo.GetAllAsync();
-            return _mapper.Map<IEnumerable<UserDto>>(users);
-        }
-
-        public async Task<UserDto?> GetByIdAsync(int id)
-        {
-            var user = await _repo.GetByIdAsync(id);
-            return user == null ? null : _mapper.Map<UserDto>(user);
-        }
-
+        //Create user
         public async Task<UserDto> CreateAsync(CreateUserDto dto)
         {
             var user = _mapper.Map<User>(dto);
-            var created = await _repo.CreateAsync(user);
-            return _mapper.Map<UserDto>(created);
+            user.IsAuthorized = true;
+            user.DepartmentMajor = "User";
+
+            _context.Users.Add(user);
+            await _context.SaveChangesAsync();
+
+            return _mapper.Map<UserDto>(user);
         }
 
+        //Read all users
+        public async Task<IEnumerable<UserDto>> GetAllAsync()
+        {
+            var users = await _context.Users.ToListAsync();
+            return _mapper.Map<IEnumerable<UserDto>>(users);
+        }
+
+        //Read user by id
+        public async Task<UserDto?> GetByIdAsync(int id)
+        {
+            var user = await _context.Users.FindAsync(id);
+            return user == null ? null : _mapper.Map<UserDto>(user);
+        }
+
+        //Update user
         public async Task<bool> UpdateAsync(UpdateUserDto dto)
         {
-            var user = _mapper.Map<User>(dto);
-            return await _repo.UpdateAsync(user);
-        }
+            var existingUser = await _context.Users.FindAsync(dto.UserId);
+            if (existingUser == null) return false;
 
-        public Task<bool> DeleteAsync(int id) => _repo.DeleteAsync(id);
+            _mapper.Map(dto, existingUser);
+
+            _context.Users.Update(existingUser);
+            await _context.SaveChangesAsync();
+            return true;
+        }
     }
 }

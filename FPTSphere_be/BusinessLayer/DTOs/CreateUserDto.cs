@@ -8,8 +8,8 @@ namespace BusinessLayer.DTOs
 {
     public class CreateUserDto
     {
-        public string FullName { get; set; } = null!;
-        public string? Email { get; set; }
-        public string? Department { get; set; }
+        public string FullName { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
+        public string DepartmentMajor { get; set; } = string.Empty;
     }
 }

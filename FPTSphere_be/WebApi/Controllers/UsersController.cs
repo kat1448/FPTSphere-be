@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using AutoMapper;
 using BusinessLayer.DTOs;
 using BusinessLayer.Services;
 using DataLayer.Data;
@@ -12,32 +13,37 @@ using Microsoft.EntityFrameworkCore;
 
 namespace WebApi.Controllers
 {
-    [ApiController]
     [Route("api/[controller]")]
+    [ApiController]
     public class UsersController : ControllerBase
     {
-        private readonly IUserService _service;
+        private readonly IUserService _userService;
 
-        public UsersController(IUserService service)
+        public UsersController(IUserService userService)
         {
-            _service = service;
+            _userService = userService;
         }
 
         [HttpGet]
-        public async Task<IActionResult> GetAll() =>
-            Ok(await _service.GetAllAsync());
+        public async Task<IActionResult> GetAll()
+        {
+            var users = await _userService.GetAllAsync();
+            return Ok(users);
+        }
 
         [HttpGet("{id}")]
         public async Task<IActionResult> GetById(int id)
         {
-            var user = await _service.GetByIdAsync(id);
-            return user == null ? NotFound() : Ok(user);
+            var user = await _userService.GetByIdAsync(id);
+            if (user == null) return NotFound();
+            return Ok(user);
         }
 
         [HttpPost]
         public async Task<IActionResult> Create([FromBody] CreateUserDto dto)
         {
-            var created = await _service.CreateAsync(dto);
+            if (!ModelState.IsValid) return BadRequest(ModelState);
+            var created = await _userService.CreateAsync(dto);
             return CreatedAtAction(nameof(GetById), new { id = created.UserId }, created);
         }
 
@@ -45,15 +51,9 @@ namespace WebApi.Controllers
         public async Task<IActionResult> Update(int id, [FromBody] UpdateUserDto dto)
         {
             if (id != dto.UserId) return BadRequest("ID mismatch");
-            var success = await _service.UpdateAsync(dto);
-            return success ? NoContent() : NotFound();
-        }
-
-        [HttpDelete("{id}")]
-        public async Task<IActionResult> Delete(int id)
-        {
-            var success = await _service.DeleteAsync(id);
-            return success ? NoContent() : NotFound();
+            var updated = await _userService.UpdateAsync(dto);
+            if (!updated) return NotFound();
+            return NoContent();
         }
     }
 }
