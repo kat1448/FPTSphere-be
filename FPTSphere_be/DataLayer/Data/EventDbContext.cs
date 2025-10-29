@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using DataLayer.Models;
 using Microsoft.EntityFrameworkCore;
@@ -7,10 +7,17 @@ namespace DataLayer.Data;
 
 public partial class EventDbContext : DbContext
 {
+    /// <summary>
+    /// Initializes a new instance of the EventDbContext class.
+    /// </summary>
     public EventDbContext()
     {
     }
 
+    /// <summary>
+    /// Initializes a new instance of EventDbContext using the provided options.
+    /// </summary>
+    /// <param name="options">Configuration options for the context, such as the database provider, connection string, and behavior settings.</param>
     public EventDbContext(DbContextOptions<EventDbContext> options)
         : base(options)
     {
@@ -38,6 +45,10 @@ public partial class EventDbContext : DbContext
 
     public virtual DbSet<User> Users { get; set; }
 
+    /// <summary>
+    /// Configures the Entity Framework Core model for the context by defining entity mappings, keys, indexes, relationships, table and column mappings, and database constraints.
+    /// </summary>
+    /// <param name="modelBuilder">The ModelBuilder used to configure entities, their properties, relationships, indexes, and constraints for this DbContext.</param>
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Assignment>(entity =>
