@@ -11,7 +11,7 @@ namespace BusinessLayer.DTOs.User
         public int UserId { get; set; }
         public string FullName { get; set; } = null!;
         public string? Email { get; set; }
-        public string? Department { get; set; }
+        public string? DepartmentMajor { get; set; }
         public bool? IsAuthorized { get; set; }
     }
 }
