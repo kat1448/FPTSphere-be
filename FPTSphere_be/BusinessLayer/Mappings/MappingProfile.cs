@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using AutoMapper;
-using BusinessLayer.DTOs;
+using BusinessLayer.DTOs.User;
 using DataLayer.Models;
 
 namespace BusinessLayer.Mappings
