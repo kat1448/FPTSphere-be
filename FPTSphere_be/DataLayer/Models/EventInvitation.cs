@@ -9,15 +9,13 @@ public partial class EventInvitation
 
     public int EventId { get; set; }
 
-    public int UserId { get; set; }
+    public string ClassCode { get; set; } = null!;
 
-    public string Status { get; set; } = null!;
+    public int SentBy { get; set; }
 
-    public DateTime? CheckInTime { get; set; }
-
-    public DateTime? CheckOutTime { get; set; }
+    public DateTime? SentAt { get; set; }
 
     public virtual Event Event { get; set; } = null!;
 
-    public virtual User User { get; set; } = null!;
+    public virtual User SentByNavigation { get; set; } = null!;
 }
