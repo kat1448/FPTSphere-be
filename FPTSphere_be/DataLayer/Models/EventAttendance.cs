@@ -3,17 +3,19 @@ using System.Collections.Generic;
 
 namespace DataLayer.Models;
 
-public partial class Assignment
+public partial class EventAttendance
 {
-    public int AssignmentId { get; set; }
+    public int AttendanceId { get; set; }
 
     public int EventId { get; set; }
 
     public int UserId { get; set; }
 
-    public string RoleName { get; set; } = null!;
+    public DateTime? CheckinAt { get; set; }
 
-    public string Status { get; set; } = null!;
+    public DateTime? CheckoutAt { get; set; }
+
+    public string? Method { get; set; }
 
     public virtual Event Event { get; set; } = null!;
 

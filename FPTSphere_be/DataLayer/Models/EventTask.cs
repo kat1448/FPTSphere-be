@@ -9,17 +9,23 @@ public partial class EventTask
 
     public int EventId { get; set; }
 
-    public int AssignedToUserId { get; set; }
+    public int AssignedTo { get; set; }
 
-    public string TaskDescription { get; set; } = null!;
+    public string Title { get; set; } = null!;
 
-    public DateTime DueDate { get; set; }
+    public string? Description { get; set; }
 
     public string Status { get; set; } = null!;
 
-    public DateTime? CompletionDate { get; set; }
+    public DateTime StartDate { get; set; }
 
-    public virtual User AssignedToUser { get; set; } = null!;
+    public DateTime DueDate { get; set; }
+
+    public DateTime? CompletedAt { get; set; }
+
+    public string? Report { get; set; }
+
+    public virtual User AssignedToNavigation { get; set; } = null!;
 
     public virtual Event Event { get; set; } = null!;
 }
