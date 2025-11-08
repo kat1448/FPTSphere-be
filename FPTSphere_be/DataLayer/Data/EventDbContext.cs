@@ -94,7 +94,6 @@ public partial class EventDbContext : DbContext
                 .HasDefaultValueSql("(getdate())")
                 .HasColumnType("datetime")
                 .HasColumnName("created_at");
-            entity.Property(e => e.CreatedBy).HasColumnName("created_by");
             entity.Property(e => e.Description).HasColumnName("description");
             entity.Property(e => e.EndTime)
                 .HasColumnType("datetime")
@@ -102,10 +101,7 @@ public partial class EventDbContext : DbContext
             entity.Property(e => e.EventName)
                 .HasMaxLength(255)
                 .HasColumnName("event_name");
-            entity.Property(e => e.ExternalLocationId).HasColumnName("external_location_id");
-            entity.Property(e => e.IsDeleted)
-                .HasDefaultValue(false)
-                .HasColumnName("is_deleted");
+            entity.Property(e => e.ExlLocationId).HasColumnName("exl_location_id");
             entity.Property(e => e.LocationId).HasColumnName("location_id");
             entity.Property(e => e.ParentEventId).HasColumnName("parent_event_id");
             entity.Property(e => e.StartTime)
@@ -116,14 +112,10 @@ public partial class EventDbContext : DbContext
             entity.Property(e => e.UpdatedAt)
                 .HasColumnType("datetime")
                 .HasColumnName("updated_at");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
 
-            entity.HasOne(d => d.CreatedByNavigation).WithMany(p => p.Events)
-                .HasForeignKey(d => d.CreatedBy)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK__Events__created___48CFD27E");
-
-            entity.HasOne(d => d.ExternalLocation).WithMany(p => p.Events)
-                .HasForeignKey(d => d.ExternalLocationId)
+            entity.HasOne(d => d.ExlLocation).WithMany(p => p.Events)
+                .HasForeignKey(d => d.ExlLocationId)
                 .HasConstraintName("FK__Events__external__47DBAE45");
 
             entity.HasOne(d => d.Location).WithMany(p => p.Events)
@@ -142,6 +134,11 @@ public partial class EventDbContext : DbContext
             entity.HasOne(d => d.Template).WithMany(p => p.Events)
                 .HasForeignKey(d => d.TemplateId)
                 .HasConstraintName("FK_Events_FeedbackTemplates");
+
+            entity.HasOne(d => d.User).WithMany(p => p.Events)
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK__Events__created___48CFD27E");
         });
 
         modelBuilder.Entity<EventAiresult>(entity =>
@@ -352,9 +349,9 @@ public partial class EventDbContext : DbContext
 
         modelBuilder.Entity<ExternalLocation>(entity =>
         {
-            entity.HasKey(e => e.ExternalLocationId).HasName("PK__External__2857FF41EBC3546B");
+            entity.HasKey(e => e.ExlLocationId).HasName("PK__External__2857FF41EBC3546B");
 
-            entity.Property(e => e.ExternalLocationId).HasColumnName("external_location_id");
+            entity.Property(e => e.ExlLocationId).HasColumnName("exl_location_id");
             entity.Property(e => e.Address)
                 .HasMaxLength(255)
                 .HasColumnName("address");
@@ -367,9 +364,9 @@ public partial class EventDbContext : DbContext
             entity.Property(e => e.Cost)
                 .HasColumnType("decimal(10, 2)")
                 .HasColumnName("cost");
-            entity.Property(e => e.Name)
+            entity.Property(e => e.ExlLocationName)
                 .HasMaxLength(255)
-                .HasColumnName("name");
+                .HasColumnName("exl_location_name");
             entity.Property(e => e.Note)
                 .HasMaxLength(500)
                 .HasColumnName("note");
@@ -380,9 +377,6 @@ public partial class EventDbContext : DbContext
             entity.HasKey(e => e.ServiceId).HasName("PK__External__3E0DB8AF04F72F62");
 
             entity.Property(e => e.ServiceId).HasColumnName("service_id");
-            entity.Property(e => e.Cost)
-                .HasColumnType("decimal(10, 2)")
-                .HasColumnName("cost");
             entity.Property(e => e.EventId).HasColumnName("event_id");
             entity.Property(e => e.Note)
                 .HasMaxLength(500)
@@ -390,9 +384,12 @@ public partial class EventDbContext : DbContext
             entity.Property(e => e.ProviderName)
                 .HasMaxLength(255)
                 .HasColumnName("provider_name");
-            entity.Property(e => e.ResourceType)
+            entity.Property(e => e.ServiceCost)
+                .HasColumnType("decimal(10, 2)")
+                .HasColumnName("service_cost");
+            entity.Property(e => e.ServiceType)
                 .HasMaxLength(100)
-                .HasColumnName("resource_type");
+                .HasColumnName("service_type");
 
             entity.HasOne(d => d.Event).WithMany(p => p.ExternalServices)
                 .HasForeignKey(d => d.EventId)
@@ -467,9 +464,9 @@ public partial class EventDbContext : DbContext
             entity.Property(e => e.IsActive)
                 .HasDefaultValue(true)
                 .HasColumnName("is_active");
-            entity.Property(e => e.Name)
+            entity.Property(e => e.LocationName)
                 .HasMaxLength(255)
-                .HasColumnName("name");
+                .HasColumnName("location_name");
             entity.Property(e => e.RoomNumber)
                 .HasMaxLength(50)
                 .HasColumnName("room_number");

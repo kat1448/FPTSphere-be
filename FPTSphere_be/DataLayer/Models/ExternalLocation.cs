@@ -5,9 +5,9 @@ namespace DataLayer.Models;
 
 public partial class ExternalLocation
 {
-    public int ExternalLocationId { get; set; }
+    public int ExlLocationId { get; set; }
 
-    public string Name { get; set; } = null!;
+    public string ExlLocationName { get; set; } = null!;
 
     public string Address { get; set; } = null!;
 

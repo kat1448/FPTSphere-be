@@ -19,9 +19,9 @@ public partial class Event
 
     public int? LocationId { get; set; }
 
-    public int? ExternalLocationId { get; set; }
+    public int? ExlLocationId { get; set; }
 
-    public int CreatedBy { get; set; }
+    public int UserId { get; set; }
 
     public int StatusId { get; set; }
 
@@ -33,11 +33,7 @@ public partial class Event
 
     public DateTime? UpdatedAt { get; set; }
 
-    public bool? IsDeleted { get; set; }
-
     public virtual ICollection<AttendanceToken> AttendanceTokens { get; set; } = new List<AttendanceToken>();
-
-    public virtual User CreatedByNavigation { get; set; } = null!;
 
     public virtual ICollection<EventAiresult> EventAiresults { get; set; } = new List<EventAiresult>();
 
@@ -53,7 +49,7 @@ public partial class Event
 
     public virtual ICollection<EventTask> EventTasks { get; set; } = new List<EventTask>();
 
-    public virtual ExternalLocation? ExternalLocation { get; set; }
+    public virtual ExternalLocation? ExlLocation { get; set; }
 
     public virtual ICollection<ExternalService> ExternalServices { get; set; } = new List<ExternalService>();
 
@@ -68,4 +64,6 @@ public partial class Event
     public virtual ICollection<StudentFeedbackHeader> StudentFeedbackHeaders { get; set; } = new List<StudentFeedbackHeader>();
 
     public virtual FeedbackTemplate? Template { get; set; }
+
+    public virtual User User { get; set; } = null!;
 }

@@ -7,7 +7,7 @@ public partial class Location
 {
     public int LocationId { get; set; }
 
-    public string Name { get; set; } = null!;
+    public string LocationName { get; set; } = null!;
 
     public int? Capacity { get; set; }
 

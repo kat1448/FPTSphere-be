@@ -11,9 +11,9 @@ public partial class ExternalService
 
     public string ProviderName { get; set; } = null!;
 
-    public string? ResourceType { get; set; }
+    public string? ServiceType { get; set; }
 
-    public decimal? Cost { get; set; }
+    public decimal? ServiceCost { get; set; }
 
     public string? Note { get; set; }
 
