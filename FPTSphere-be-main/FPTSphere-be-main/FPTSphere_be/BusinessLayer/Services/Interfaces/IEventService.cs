@@ -1,0 +1,19 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using BusinessLayer.DTOs.Event;
+using BusinessLayer.DTOs;
+
+namespace BusinessLayer.Services.Interfaces
+{
+    public interface IEventService
+    {
+        Task<PagedResult<EventDto>> GetEventsAsync(int page, int pageSize, EventFilterDto? filter, string sortBy, bool sortDescending);
+        Task<EventDto?> GetEventByIdAsync(int id);
+        Task<EventDto> CreateAsync(CreateEventDto dto, int currentUserId);
+        Task<EventDto?> UpdateAsync(int id, UpdateEventDto dto, int currentUserId);
+        Task<bool> DeleteAsync(int id, int currentUserId);
+    }
+}
