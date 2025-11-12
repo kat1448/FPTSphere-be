@@ -23,6 +23,8 @@ namespace BusinessLayer.Services.Implementations
             _mapper = mapper;
         }
 
+        // ==================== MAIN EVENT METHODS ====================
+
         public async Task<PagedResult<EventDto>> GetEventsAsync(int page, int pageSize, EventFilterDto? filter, string sortBy, bool sortDescending)
         {
             if (page < 1) page = 1;
@@ -179,6 +181,187 @@ namespace BusinessLayer.Services.Implementations
 
             if (dto.ExpectedAttendees.HasValue && dto.ExpectedAttendees.Value < 1) return (false, "Attendees must be >= 1");
             if (dto.EstimatedCost.HasValue && dto.EstimatedCost.Value < 0) return (false, "Cost cannot be negative");
+
+            return (true, string.Empty);
+        }
+
+        // ==================== SUB-EVENT METHODS ====================
+
+        public async Task<List<SubEventDto>> GetSubEventsAsync(int parentEventId)
+        {
+            var parentEvent = await _unitOfWork.Events.GetByIdAsync(parentEventId);
+            if (parentEvent == null)
+                throw new InvalidOperationException("Parent event not found");
+
+            var subEvents = await _unitOfWork.Events.GetSubEventsByParentIdAsync(parentEventId);
+            var result = _mapper.Map<List<SubEventDto>>(subEvents);
+
+            foreach (var dto in result)
+            {
+                dto.ParentEventName = parentEvent.EventName;
+            }
+
+            return result;
+        }
+
+        public async Task<SubEventDto> CreateSubEventAsync(int parentEventId, CreateSubEventDto dto, int currentUserId)
+        {
+            // 1. Validate parent event exists
+            var parentEvent = await _unitOfWork.Events.GetByIdAsync(parentEventId);
+            if (parentEvent == null)
+                throw new InvalidOperationException("Parent event not found");
+
+            // 2. Check permissions
+            if (parentEvent.CreatedBy != currentUserId)
+            {
+                var currentUser = await _unitOfWork.Users.GetByIdAsync(currentUserId);
+                if (currentUser?.Role?.RoleName != "Admin")
+                    throw new UnauthorizedAccessException("Only event creator or Admin can add sub-events");
+            }
+
+            // 3. Only Draft events can have sub-events added
+            if (parentEvent.StatusId != 1)
+                throw new InvalidOperationException("Can only add sub-events to Draft events");
+
+            // 4. Validate sub-event data
+            var validation = await ValidateSubEventAsync(dto, parentEvent);
+            if (!validation.success)
+                throw new InvalidOperationException(validation.message);
+
+            // 5. Create sub-event using AutoMapper
+            var subEvent = _mapper.Map<Event>(dto);
+            subEvent.ParentEventId = parentEventId;
+            subEvent.CreatedBy = currentUserId;
+            subEvent.StatusId = 1; // Draft
+            subEvent.CreatedAt = DateTime.Now;
+            subEvent.IsDeleted = false;
+
+            await _unitOfWork.Events.AddAsync(subEvent);
+            await _unitOfWork.SaveChangesAsync();
+
+            // 6. Return with details using AutoMapper
+            var result = await _unitOfWork.Events.GetByIdWithDetailsAsync(subEvent.EventId);
+            var subEventDto = _mapper.Map<SubEventDto>(result);
+            subEventDto.ParentEventName = parentEvent.EventName;
+
+            return subEventDto;
+        }
+
+        public async Task<SubEventDto?> UpdateSubEventAsync(int subEventId, UpdateSubEventDto dto, int currentUserId)
+        {
+            // 1. Get sub-event
+            var subEvent = await _unitOfWork.Events.GetByIdAsync(subEventId);
+            if (subEvent == null || subEvent.ParentEventId == null)
+                return null;
+
+            // 2. Check permissions
+            if (subEvent.CreatedBy != currentUserId)
+            {
+                var currentUser = await _unitOfWork.Users.GetByIdAsync(currentUserId);
+                if (currentUser?.Role?.RoleName != "Admin")
+                    throw new UnauthorizedAccessException("Only event creator or Admin can update sub-events");
+            }
+
+            // 3. Only Draft can be updated
+            if (subEvent.StatusId != 1)
+                throw new InvalidOperationException("Can only update Draft sub-events");
+
+            // 4. Get parent event for validation
+            var parentEvent = await _unitOfWork.Events.GetByIdAsync(subEvent.ParentEventId.Value);
+            if (parentEvent == null)
+                throw new InvalidOperationException("Parent event not found");
+
+            // 5. Validate
+            var createDto = _mapper.Map<CreateSubEventDto>(dto);
+            var validation = await ValidateSubEventAsync(createDto, parentEvent);
+            if (!validation.success)
+                throw new InvalidOperationException(validation.message);
+
+            // 6. Update using AutoMapper
+            _mapper.Map(dto, subEvent);
+            subEvent.UpdatedAt = DateTime.Now;
+
+            await _unitOfWork.Events.UpdateAsync(subEvent);
+            await _unitOfWork.SaveChangesAsync();
+
+            // 7. Return with details using AutoMapper
+            var result = await _unitOfWork.Events.GetByIdWithDetailsAsync(subEventId);
+            var subEventDto = _mapper.Map<SubEventDto>(result);
+            subEventDto.ParentEventName = parentEvent.EventName;
+
+            return subEventDto;
+        }
+
+        public async Task<bool> DeleteSubEventAsync(int subEventId, int currentUserId)
+        {
+            // 1. Get sub-event
+            var subEvent = await _unitOfWork.Events.GetByIdAsync(subEventId);
+            if (subEvent == null || subEvent.ParentEventId == null || subEvent.IsDeleted == true)
+                return false;
+
+            // 2. Check permissions
+            if (subEvent.CreatedBy != currentUserId)
+            {
+                var currentUser = await _unitOfWork.Users.GetByIdAsync(currentUserId);
+                if (currentUser?.Role?.RoleName != "Admin")
+                    throw new UnauthorizedAccessException("Only event creator or Admin can delete sub-events");
+            }
+
+            // 3. Only Draft can be deleted
+            if (subEvent.StatusId != 1)
+                throw new InvalidOperationException("Can only delete Draft sub-events");
+
+            // 4. Soft delete
+            subEvent.IsDeleted = true;
+            subEvent.UpdatedAt = DateTime.Now;
+
+            await _unitOfWork.Events.UpdateAsync(subEvent);
+            await _unitOfWork.SaveChangesAsync();
+
+            return true;
+        }
+
+        /// <summary>
+        /// Validate sub-event data
+        /// </summary>
+        private async Task<(bool success, string message)> ValidateSubEventAsync(CreateSubEventDto dto, Event parentEvent)
+        {
+            // 1. Time validation
+            if (dto.EndTime <= dto.StartTime)
+                return (false, "End time must be after start time");
+
+            if (dto.StartTime < DateTime.Now.AddHours(-1))
+                return (false, "Start time cannot be in the past");
+
+            // 2. Sub-event must be within parent event time range
+            if (dto.StartTime < parentEvent.StartTime)
+                return (false, $"Sub-event start time cannot be before parent event start time ({parentEvent.StartTime:dd/MM/yyyy HH:mm})");
+
+            if (dto.EndTime > parentEvent.EndTime)
+                return (false, $"Sub-event end time cannot be after parent event end time ({parentEvent.EndTime:dd/MM/yyyy HH:mm})");
+
+            // 3. Location validation (same as main event)
+            if (dto.LocationId.HasValue && dto.ExternalLocationId.HasValue)
+                return (false, "Cannot have both internal and external location");
+
+            if (!dto.LocationId.HasValue && !dto.ExternalLocationId.HasValue)
+                return (false, "Must specify either internal or external location");
+
+            // 4. Verify internal location
+            if (dto.LocationId.HasValue)
+            {
+                var location = await _unitOfWork.Locations.GetByIdAsync(dto.LocationId.Value);
+                if (location == null || location.IsActive != true)
+                    return (false, "Invalid internal location");
+            }
+
+            // 5. Verify external location
+            if (dto.ExternalLocationId.HasValue)
+            {
+                var extLocation = await _unitOfWork.ExternalLocations.GetByIdAsync(dto.ExternalLocationId.Value);
+                if (extLocation == null)
+                    return (false, "Invalid external location");
+            }
 
             return (true, string.Empty);
         }

@@ -16,6 +16,8 @@ namespace WebApi.Controllers
 
         public EventsController(IEventService eventService) => _eventService = eventService;
 
+        // ==================== MAIN EVENT ENDPOINTS ====================
+
         [HttpGet]
         public async Task<IActionResult> GetEvents(
             [FromQuery] int page = 1, [FromQuery] int pageSize = 10,
@@ -143,6 +145,142 @@ namespace WebApi.Controllers
 
                 if (!result) return NotFound(ApiResponse<object>.ErrorResult("Event not found"));
                 return Ok(ApiResponse<object>.SuccessResult(null, "Event deleted"));
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Forbid();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+
+        // ==================== SUB-EVENTS ENDPOINTS ⭐ NEW ====================
+
+        /// <summary>
+        /// Get all sub-events of a main event
+        /// </summary>
+        [HttpGet("{id}/subevents")]
+        public async Task<IActionResult> GetSubEvents(int id)
+        {
+            try
+            {
+                var result = await _eventService.GetSubEventsAsync(id);
+                return Ok(ApiResponse<List<SubEventDto>>.SuccessResult(
+                    result,
+                    $"Retrieved {result.Count} sub-events"));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return NotFound(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+
+        /// <summary>
+        /// Create a new sub-event under a main event
+        /// </summary>
+        [HttpPost("{id}/subevents")]
+        [Authorize(Roles = "Admin,Event Manager")]
+        public async Task<IActionResult> CreateSubEvent(int id, [FromBody] CreateSubEventDto dto)
+        {
+            try
+            {
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    return BadRequest(ApiResponse<object>.ErrorResult("Invalid data", errors));
+                }
+
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                var result = await _eventService.CreateSubEventAsync(id, dto, userId);
+
+                return CreatedAtAction(
+                    nameof(GetEventById),
+                    new { id = result.EventId },
+                    ApiResponse<SubEventDto>.SuccessResult(result, "Sub-event created successfully"));
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Forbid();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+
+        /// <summary>
+        /// Update a sub-event
+        /// </summary>
+        [HttpPut("subevents/{subEventId}")]
+        [Authorize(Roles = "Admin,Event Manager")]
+        public async Task<IActionResult> UpdateSubEvent(int subEventId, [FromBody] UpdateSubEventDto dto)
+        {
+            try
+            {
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    return BadRequest(ApiResponse<object>.ErrorResult("Invalid data", errors));
+                }
+
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                var result = await _eventService.UpdateSubEventAsync(subEventId, dto, userId);
+
+                if (result == null)
+                    return NotFound(ApiResponse<object>.ErrorResult("Sub-event not found"));
+
+                return Ok(ApiResponse<SubEventDto>.SuccessResult(result, "Sub-event updated successfully"));
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return Forbid();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+
+        /// <summary>
+        /// Delete a sub-event (soft delete)
+        /// </summary>
+        [HttpDelete("subevents/{subEventId}")]
+        [Authorize(Roles = "Admin,Event Manager")]
+        public async Task<IActionResult> DeleteSubEvent(int subEventId)
+        {
+            try
+            {
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                var result = await _eventService.DeleteSubEventAsync(subEventId, userId);
+
+                if (!result)
+                    return NotFound(ApiResponse<object>.ErrorResult("Sub-event not found"));
+
+                return Ok(ApiResponse<object>.SuccessResult(null, "Sub-event deleted successfully"));
             }
             catch (UnauthorizedAccessException)
             {

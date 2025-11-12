@@ -11,5 +11,6 @@ namespace DataLayer.Repositories.Interfaces
     {
         Task<Event?> GetByIdWithDetailsAsync(int id);
         Task<List<Event>> GetAllWithDetailsAsync();
+        Task<List<Event>> GetSubEventsByParentIdAsync(int parentEventId);
     }
 }

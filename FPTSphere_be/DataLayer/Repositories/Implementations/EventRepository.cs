@@ -22,6 +22,7 @@ namespace DataLayer.Repositories.Implementations
                 .Include(e => e.ExternalLocation)
                 .Include(e => e.Status)
                 .Include(e => e.Template)
+                .Include(e => e.ParentEvent)
                 .FirstOrDefaultAsync(e => e.EventId == id);
         }
 
@@ -33,7 +34,21 @@ namespace DataLayer.Repositories.Implementations
                 .Include(e => e.ExternalLocation)
                 .Include(e => e.Status)
                 .Include(e => e.Template)
+                .Include(e => e.ParentEvent)
                 .ToListAsync();
         }
+        public async Task<List<Event>> GetSubEventsByParentIdAsync(int parentEventId)
+        {
+            return await _dbSet
+                .Include(e => e.CreatedByNavigation).ThenInclude(u => u.Role)
+                .Include(e => e.Location)
+                .Include(e => e.ExternalLocation)
+                .Include(e => e.Status)
+                .Include(e => e.ParentEvent)
+                .Where(e => e.ParentEventId == parentEventId && e.IsDeleted != true)
+                .OrderBy(e => e.StartTime)
+                .ToListAsync();
+        }
+
     }
 }
