@@ -27,6 +27,9 @@ builder.Services.AddScoped<IResourceRepository, ResourceRepository>();
 builder.Services.AddScoped<IExternalLocationRepository, ExternalLocationRepository>();
 builder.Services.AddScoped<IEventStatusRepository, EventStatusRepository>();
 builder.Services.AddScoped<IEventRepository, EventRepository>();
+builder.Services.AddScoped<IExternalServiceRepository, ExternalServiceRepository>();
+builder.Services.AddScoped<IEventResourceRepository, EventResourceRepository>();
+
 
 // AutoMapper
 builder.Services.AddAutoMapper(typeof(UserMappingProfile));
@@ -37,6 +40,8 @@ builder.Services.AddAutoMapper(
     typeof(ResourceMappingProfile),
     typeof(EventStatusMappingProfile),
     typeof(EventMappingProfile),
+    typeof(ExternalServiceMappingProfile),
+    typeof(EventResourceMappingProfile),
     typeof(ExternalLocationMappingProfile));
 
 
@@ -49,6 +54,8 @@ builder.Services.AddScoped<IResourceService, ResourceService>();
 builder.Services.AddScoped<IExternalLocationService, ExternalLocationService>();
 builder.Services.AddScoped<IEventStatusService, EventStatusService>();
 builder.Services.AddScoped<IEventService, EventService>();
+builder.Services.AddScoped<IExternalServiceService, ExternalServiceService>();
+builder.Services.AddScoped<IEventResourceService, EventResourceService>();
 
 // JWT Authentication
 builder.Services.AddAuthentication(options =>

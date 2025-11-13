@@ -21,6 +21,8 @@ namespace DataLayer.Repositories.Implementations
         private IExternalLocationRepository? _externalLocations;
         private IEventStatusRepository? _eventStatuses;
         private IEventRepository? _events;
+        private IExternalServiceRepository? _externalServices;
+        private IEventResourceRepository? _eventResources;
 
         public UnitOfWork(EventDbContext context)
         {
@@ -31,6 +33,9 @@ namespace DataLayer.Repositories.Implementations
         public IExternalLocationRepository ExternalLocations => _externalLocations ??= new ExternalLocationRepository(_context);
         public IEventStatusRepository EventStatuses => _eventStatuses ??= new EventStatusRepository(_context);
         public IEventRepository Events => _events ??= new EventRepository(_context);
+        public IExternalServiceRepository ExternalServices => _externalServices ??= new ExternalServiceRepository(_context);
+        public IEventResourceRepository EventResources => _eventResources ??= new EventResourceRepository(_context);
+
 
 
         // USERS REPOSITORY
