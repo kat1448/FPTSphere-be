@@ -20,7 +20,6 @@ namespace BusinessLayer.DTOs.Event
 
         public int? CreatedBy { get; set; }
 
-        // ⭐ NEW FILTERS
         public int? MinAttendees { get; set; }
 
         public int? MaxAttendees { get; set; }

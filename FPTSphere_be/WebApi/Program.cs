@@ -1,4 +1,5 @@
 ﻿using BusinessLayer.DTOs;
+using BusinessLayer.Helpers;
 using BusinessLayer.Mappings;
 using BusinessLayer.Services;
 using BusinessLayer.Services.Implementations;
@@ -56,6 +57,9 @@ builder.Services.AddScoped<IEventStatusService, EventStatusService>();
 builder.Services.AddScoped<IEventService, EventService>();
 builder.Services.AddScoped<IExternalServiceService, ExternalServiceService>();
 builder.Services.AddScoped<IEventResourceService, EventResourceService>();
+builder.Services.AddScoped<EventValidationHelper>();
+builder.Services.AddScoped<EventPermissionHelper>();
+builder.Services.AddScoped<EventFilterHelper>();
 
 // JWT Authentication
 builder.Services.AddAuthentication(options =>
@@ -85,9 +89,21 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowFrontend", builder =>
     {
         builder.WithOrigins(
+
+                   "http://localhost:3000",      // Original
+                   "http://127.0.0.1:3000",
+                   "https://localhost:3000",
+                   "http://localhost:3001",      // ✅ ADD THIS!
+                   "http://127.0.0.1:3001",      // ✅ ADD THIS!
+                   "https://localhost:3001",     // ✅ ADD THIS!
                    "http://localhost:5173",
                    "http://127.0.0.1:5173",
-                   "https://localhost:5173"
+                   "https://localhost:5173",
+                                     // Port 5174 (Your current frontend) ← ADDED
+                   "http://localhost:5174",
+                   "http://127.0.0.1:5174",
+                   "https://localhost:5174"
+
                )
                .AllowAnyMethod()
                .AllowAnyHeader()

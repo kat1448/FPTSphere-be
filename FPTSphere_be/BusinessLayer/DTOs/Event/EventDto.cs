@@ -23,33 +23,25 @@ namespace BusinessLayer.DTOs.Event
 
         public DateTime EndTime { get; set; }
 
-        // ⭐ NEW FIELDS
         public int? ExpectedAttendees { get; set; }
 
         public decimal? EstimatedCost { get; set; }
-
-        // Location (either internal OR external)
         public int? LocationId { get; set; }
         public LocationDto? Location { get; set; }
 
         public int? ExternalLocationId { get; set; }
         public ExternalLocationDto? ExternalLocation { get; set; }
 
-        // Creator info
         public int CreatedBy { get; set; }
         public UserResponse? Creator { get; set; }
 
-        // Status
         public int StatusId { get; set; }
         public EventStatusDto? Status { get; set; }
 
-        // Parent event (for sub-events)
         public int? ParentEventId { get; set; }
 
-        // Feedback template
         public int? TemplateId { get; set; }
 
-        // Timestamps
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
         public bool IsDeleted { get; set; }

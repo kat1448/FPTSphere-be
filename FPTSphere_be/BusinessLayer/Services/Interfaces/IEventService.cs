@@ -21,5 +21,12 @@ namespace BusinessLayer.Services.Interfaces
         Task<SubEventDto> CreateSubEventAsync(int parentEventId, CreateSubEventDto dto, int currentUserId);
         Task<SubEventDto?> UpdateSubEventAsync(int subEventId, UpdateSubEventDto dto, int currentUserId);
         Task<bool> DeleteSubEventAsync(int subEventId, int currentUserId);
+
+        Task<List<PublicEventDto>> GetPublicEventsAsync();
+
+        Task<PublicEventDto?> GetPublicEventByIdAsync(int id);
+        Task<PublicEventDto?> GetPublicEventWithSubEventsAsync(int id);
+
+
     }
 }
