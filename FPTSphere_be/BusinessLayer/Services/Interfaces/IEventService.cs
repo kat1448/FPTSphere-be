@@ -30,9 +30,6 @@ namespace BusinessLayer.Services.Interfaces
         Task<EventStatistics> GetMyEventStatisticsAsync(int currentUserId);
         // ⭐ PHÊ DUYỆT
         Task<EventDto?> SubmitForApprovalAsync(int eventId, int currentUserId);
-        Task<EventDto?> ApproveEventAsync(int eventId, int currentUserId);
-        Task<EventDto?> RejectEventAsync(int eventId, int currentUserId);
-        Task<EventDto?> CancelEventAsync(int eventId, int currentUserId);
         Task<List<EventInvitationDto>> SendInvitationsAsync(int eventId, int senderUserId, SendEventInvitationsDto dto);
 
     }

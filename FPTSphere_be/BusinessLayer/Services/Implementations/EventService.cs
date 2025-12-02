@@ -475,73 +475,7 @@ namespace BusinessLayer.Services.Implementations
             return _mapper.Map<EventDto>(updated);
         }
 
-        public async Task<EventDto?> ApproveEventAsync(int eventId, int currentUserId)
-        {
-            var ev = await _unitOfWork.Events.GetByIdAsync(eventId);
-            if (ev == null || ev.IsDeleted == true) return null;
-
-            var permission = await _permissionHelper.CanApproveEventAsync(ev, currentUserId);
-            permission.ThrowIfDenied();
-
-            var statusCheck = _permissionHelper.ValidateStatusTransition(ev.StatusId, APPROVED_STATUS_ID);
-            statusCheck.ThrowIfDenied();
-
-            ev.StatusId = APPROVED_STATUS_ID;
-            ev.UpdatedAt = DateTime.Now;
-
-            await _unitOfWork.Events.UpdateAsync(ev);
-            await _unitOfWork.SaveChangesAsync();
-
-            var updated = await _unitOfWork.Events.GetByIdWithDetailsAsync(ev.EventId);
-            return _mapper.Map<EventDto>(updated);
-        }
-
-        public async Task<EventDto?> RejectEventAsync(int eventId, int currentUserId)
-        {
-            var ev = await _unitOfWork.Events.GetByIdAsync(eventId);
-            if (ev == null || ev.IsDeleted == true) return null;
-
-            var permission = await _permissionHelper.CanApproveEventAsync(ev, currentUserId);
-            permission.ThrowIfDenied();
-
-            var statusCheck = _permissionHelper.ValidateStatusTransition(ev.StatusId, REJECTED_STATUS_ID);
-            statusCheck.ThrowIfDenied();
-
-            ev.StatusId = REJECTED_STATUS_ID;
-            ev.UpdatedAt = DateTime.Now;
-
-            await _unitOfWork.Events.UpdateAsync(ev);
-            await _unitOfWork.SaveChangesAsync();
-
-            var updated = await _unitOfWork.Events.GetByIdWithDetailsAsync(ev.EventId);
-            return _mapper.Map<EventDto>(updated);
-        }
-
-        public async Task<EventDto?> CancelEventAsync(int eventId, int currentUserId)
-        {
-            var ev = await _unitOfWork.Events.GetByIdAsync(eventId);
-            if (ev == null || ev.IsDeleted == true) return null;
-
-            var permission = await _permissionHelper.CanCancelEventAsync(ev, currentUserId);
-            permission.ThrowIfDenied();
-
-            var statusCheck = _permissionHelper.ValidateStatusTransition(ev.StatusId, CANCELLED_STATUS_ID);
-            statusCheck.ThrowIfDenied();
-
-            ev.StatusId = CANCELLED_STATUS_ID;
-            ev.UpdatedAt = DateTime.Now;
-
-            await _unitOfWork.Events.UpdateAsync(ev);
-            await _unitOfWork.SaveChangesAsync();
-
-            var updated = await _unitOfWork.Events.GetByIdWithDetailsAsync(ev.EventId);
-            return _mapper.Map<EventDto>(updated);
-        }
-
-        #endregion
-
-        #region Send invitations
-
+        
         public async Task<List<EventInvitationDto>> SendInvitationsAsync(
             int eventId, int senderUserId, SendEventInvitationsDto dto)
         {
