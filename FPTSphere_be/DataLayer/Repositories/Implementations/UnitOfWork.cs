@@ -23,6 +23,7 @@ namespace DataLayer.Repositories.Implementations
         private IEventRepository? _events;
         private IExternalServiceRepository? _externalServices;
         private IEventResourceRepository? _eventResources;
+        private IEventInvitationRepository? _eventInvitations;
 
         public UnitOfWork(EventDbContext context)
         {
@@ -35,6 +36,8 @@ namespace DataLayer.Repositories.Implementations
         public IEventRepository Events => _events ??= new EventRepository(_context);
         public IExternalServiceRepository ExternalServices => _externalServices ??= new ExternalServiceRepository(_context);
         public IEventResourceRepository EventResources => _eventResources ??= new EventResourceRepository(_context);
+        public IEventInvitationRepository EventInvitations
+    => _eventInvitations ??= new EventInvitationRepository(_context);
 
 
 

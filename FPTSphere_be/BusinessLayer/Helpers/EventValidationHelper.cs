@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Linq;
 using System.Threading.Tasks;
 using DataLayer.Repositories.Interfaces;
 
@@ -31,7 +32,10 @@ namespace BusinessLayer.Helpers
             int? externalLocationId,
             int? expectedAttendees,
             DateTime? parentStartTime = null,
-            DateTime? parentEndTime = null)
+            DateTime? parentEndTime = null,
+            int? parentEventId = null,   // ⭐ new: để biết sub-event thuộc event nào
+            int? currentEventId = null   // ⭐ new: để bỏ qua chính nó khi update
+        )
         {
             // 1. Basic field validation
             if (string.IsNullOrWhiteSpace(eventName))
@@ -42,10 +46,27 @@ namespace BusinessLayer.Helpers
             if (!timeValidation.IsSuccess)
                 return timeValidation;
 
-            // 3. Location validation
+            // 3. Location existence + capacity validation
             var locationValidation = await ValidateLocationAsync(locationId, externalLocationId, expectedAttendees);
             if (!locationValidation.IsSuccess)
                 return locationValidation;
+
+            // 4. Location availability (conflict with other events)
+            //    - Main event: chỉ truyền currentEventId (nếu update) để bỏ qua chính nó
+            //    - Sub-event: truyền parentEventId để bỏ qua parent (không coi parent là conflict)
+            if (locationId.HasValue)
+            {
+                var availability = await ValidateLocationAvailabilityAsync(
+                    locationId.Value,
+                    startTime,
+                    endTime,
+                    ignoreEventId: currentEventId,
+                    ignoreParentEventId: parentEventId
+                );
+
+                if (!availability.IsSuccess)
+                    return availability;
+            }
 
             return ValidationResult.Success();
         }
@@ -194,6 +215,49 @@ namespace BusinessLayer.Helpers
         #endregion
 
         #region Helper Methods
+
+        /// <summary>
+        /// Check if location is free in given time range.
+        /// You can optionally ignore:
+        ///  - ignoreEventId: chính event đang update
+        ///  - ignoreParentEventId: parent event khi tạo/đổi sub-event
+        /// </summary>
+        public async Task<ValidationResult> ValidateLocationAvailabilityAsync(
+            int locationId,
+            DateTime startTime,
+            DateTime endTime,
+            int? ignoreEventId = null,
+            int? ignoreParentEventId = null)
+        {
+            var allEvents = await _unitOfWork.Events.GetAllWithDetailsAsync();
+
+            var conflicts = allEvents
+                .Where(e =>
+                    e.IsDeleted != true &&
+                    e.LocationId == locationId &&
+                    (!ignoreEventId.HasValue || e.EventId != ignoreEventId.Value) &&
+                    (!ignoreParentEventId.HasValue || e.EventId != ignoreParentEventId.Value) &&
+                    TimeRangeOverlap(e.StartTime, e.EndTime, startTime, endTime))
+                .ToList();
+
+            if (conflicts.Any())
+            {
+                // Có thể log thêm thông tin event bị conflict nếu muốn
+                return ValidationResult.Fail("Location is already booked in the selected time range.");
+            }
+
+            return ValidationResult.Success();
+        }
+
+        /// <summary>
+        /// Basic time overlap check:
+        /// [aStart, aEnd] overlaps [bStart, bEnd] if:
+        /// aStart < bEnd && bStart < aEnd
+        /// </summary>
+        private bool TimeRangeOverlap(DateTime aStart, DateTime aEnd, DateTime bStart, DateTime bEnd)
+        {
+            return aStart < bEnd && bStart < aEnd;
+        }
 
         /// <summary>
         /// Check if a date is in the past (with tolerance)

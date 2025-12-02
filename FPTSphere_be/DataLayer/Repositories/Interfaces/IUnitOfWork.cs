@@ -21,6 +21,7 @@ namespace DataLayer.Repositories.Interfaces
         IEventRepository Events { get; }
         IExternalServiceRepository ExternalServices { get; }
         IEventResourceRepository EventResources { get; }
+        IEventInvitationRepository EventInvitations {  get; }
 
     }
 }

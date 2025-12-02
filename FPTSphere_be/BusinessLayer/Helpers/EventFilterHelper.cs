@@ -63,6 +63,12 @@ namespace BusinessLayer.Helpers
                 filtered = filtered.Where(e => e.EstimatedCost.HasValue &&
                                               e.EstimatedCost.Value <= filter.MaxCost.Value);
 
+            if (filter.OnlyMainEvents)
+                filtered = filtered.Where(e => e.ParentEventId == null);
+
+            if (filter.OnlySubEvents)
+                filtered = filtered.Where(e => e.ParentEventId != null);
+
             // Deleted filter (default: exclude deleted)
             if (!filter.IncludeDeleted)
                 filtered = filtered.Where(e => e.IsDeleted != true);
@@ -364,16 +370,31 @@ namespace BusinessLayer.Helpers
             return new EventStatistics
             {
                 TotalEvents = eventList.Count,
-                DraftEvents = eventList.Count(e => e.StatusId == 1),
-                PendingEvents = eventList.Count(e => e.StatusId == 2),
-                ApprovedEvents = eventList.Count(e => e.StatusId == 3),
-                OngoingEvents = eventList.Count(e => e.StartTime <= now && e.EndTime >= now),
-                UpcomingEvents = eventList.Count(e => e.StartTime > now),
-                PastEvents = eventList.Count(e => e.EndTime < now),
+
+                // Đếm theo status id
+                DraftEvents = eventList.Count(e => e.StatusId == 1), // Draft
+                PendingEvents = eventList.Count(e => e.StatusId == 2), // Pending Approval
+                ApprovedEvents = eventList.Count(e => e.StatusId == 3), // Approved
+
+                // ⭐ Đếm cho 3 card trên dashboard EM
+                // Sắp diễn ra: chỉ các event đã Approved và thời gian còn ở tương lai
+                UpcomingEvents = eventList.Count(e =>
+                    e.StatusId == 3 && e.StartTime > now),
+
+                // Đang diễn ra: các event In Progress
+                OngoingEvents = eventList.Count(e =>
+                    e.StatusId == 4),
+
+                // Đã kết thúc: các event Completed
+                PastEvents = eventList.Count(e =>
+                    e.StatusId == 5),
+
+                // Tổng dự kiến người tham gia / chi phí
                 TotalExpectedAttendees = eventList.Sum(e => e.ExpectedAttendees ?? 0),
                 TotalEstimatedCost = eventList.Sum(e => e.EstimatedCost ?? 0)
             };
         }
+
 
         #endregion
     }
