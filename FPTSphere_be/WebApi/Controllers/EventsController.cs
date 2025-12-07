@@ -1,9 +1,10 @@
-﻿using BusinessLayer.DTOs.Event;
-using BusinessLayer.DTOs;
+﻿using BusinessLayer.DTOs;
+using BusinessLayer.DTOs.Event;
+using BusinessLayer.DTOs.EventApproval;
 using BusinessLayer.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
-using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace WebApi.Controllers
 {
@@ -295,5 +296,95 @@ namespace WebApi.Controllers
                 return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
             }
         }
+
+        #region Event approve/reject
+        // Get all events pending
+        [HttpGet("pending-approval")]
+        [Authorize(Roles = "Director,Admin")]
+        public async Task<IActionResult> GetPendingApprovals()
+        {
+            try
+            {
+                var result = await _eventService.GetPendingApprovalsAsync();
+                return Ok(ApiResponse<List<PendingApprovalDto>>.SuccessResult(
+                    result,
+                    $"Retrieved {result.Count} events pending approval"));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+
+        // Approve event
+        [HttpPost("{id}/approve")]
+        [Authorize(Roles = "Director,Admin")]
+        public async Task<IActionResult> ApproveEvent(int id, [FromBody] EventDecisionDto dto)
+        {
+            try
+            {
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                var result = await _eventService.ApproveEventAsync(id, dto, userId);
+
+                return Ok(ApiResponse<EventDto>.SuccessResult(result, "Event approved successfully"));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Forbid(ex.Message);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+
+        // Reject event
+        [HttpPost("{id}/reject")]
+        [Authorize(Roles = "Director,Admin")]
+        public async Task<IActionResult> RejectEvent(int id, [FromBody] EventDecisionDto dto)
+        {
+            try
+            {
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                var result = await _eventService.RejectEventAsync(id, dto, userId);
+
+                return Ok(ApiResponse<EventDto>.SuccessResult(result, "Event rejected successfully"));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Forbid(ex.Message);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+
+        // Get approval history
+        [HttpGet("{id}/approval-history")]
+        [Authorize(Roles = "Director,Admin,Event Manager")]
+        public async Task<IActionResult> GetApprovalHistory(int id)
+        {
+            try
+            {
+                var result = await _eventService.GetApprovalHistoryAsync(id);
+                return Ok(ApiResponse<List<EventApprovalDto>>.SuccessResult(
+                    result,
+                    $"Retrieved {result.Count} approval records"));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+        #endregion
     }
 }

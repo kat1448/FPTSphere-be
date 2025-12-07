@@ -22,8 +22,7 @@ namespace BusinessLayer.Helpers
         private const int DRAFT_STATUS_ID = 1;
         private const int PENDING_STATUS_ID = 2;
         private const int APPROVED_STATUS_ID = 3;
-        private const int REJECTED_STATUS_ID = 4;
-        private const int CANCELLED_STATUS_ID = 5;
+        private const int CANCELLED_STATUS_ID = 6;
 
         public EventPermissionHelper(IUnitOfWork unitOfWork)
         {
@@ -232,8 +231,6 @@ namespace BusinessLayer.Helpers
             {
                 (DRAFT_STATUS_ID, PENDING_STATUS_ID),           // Draft → Pending
                 (PENDING_STATUS_ID, APPROVED_STATUS_ID),        // Pending → Approved
-                (PENDING_STATUS_ID, REJECTED_STATUS_ID),        // Pending → Rejected
-                (REJECTED_STATUS_ID, DRAFT_STATUS_ID),          // Rejected → Draft (resubmit)
                 (DRAFT_STATUS_ID, CANCELLED_STATUS_ID),         // Draft → Cancelled
                 (PENDING_STATUS_ID, CANCELLED_STATUS_ID),       // Pending → Cancelled
                 (APPROVED_STATUS_ID, CANCELLED_STATUS_ID)       // Approved → Cancelled
@@ -263,7 +260,6 @@ namespace BusinessLayer.Helpers
                 DRAFT_STATUS_ID => "Draft",
                 PENDING_STATUS_ID => "Pending",
                 APPROVED_STATUS_ID => "Approved",
-                REJECTED_STATUS_ID => "Rejected",
                 CANCELLED_STATUS_ID => "Cancelled",
                 _ => "Unknown"
             };

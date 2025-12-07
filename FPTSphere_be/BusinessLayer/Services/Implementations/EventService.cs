@@ -1,14 +1,15 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using AutoMapper;
-using BusinessLayer.DTOs.Event;
+﻿using AutoMapper;
 using BusinessLayer.DTOs;
+using BusinessLayer.DTOs.Event;
+using BusinessLayer.DTOs.EventApproval;
 using BusinessLayer.Helpers;
 using BusinessLayer.Services.Interfaces;
 using DataLayer.Models;
 using DataLayer.Repositories.Interfaces;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace BusinessLayer.Services.Implementations
 {
@@ -20,7 +21,11 @@ namespace BusinessLayer.Services.Implementations
         private readonly EventPermissionHelper _permissionHelper;
         private readonly EventFilterHelper _filterHelper;
         private const int DRAFT_STATUS_ID = 1;
+        private const int PENDING_STATUS_ID = 2;
         private const int APPROVED_STATUS_ID = 3;
+        private const int IN_PROGRESS_STATUS_ID = 4;
+        private const int COMPLETED_STATUS_ID = 5;
+        private const int CANCELLED_STATUS_ID = 6;
 
         public EventService(
             IUnitOfWork unitOfWork,
@@ -301,5 +306,143 @@ namespace BusinessLayer.Services.Implementations
             return ev.EndTime >= DateTime.Now;
         }
 
+        #region Director aprove/reject
+
+        // Get pending approval
+        public async Task<List<PendingApprovalDto>> GetPendingApprovalsAsync()
+        {
+            var allEvents = await _unitOfWork.Events.GetAllWithDetailsAsync();
+            var pendingEvents = allEvents
+                .Where(e => e.StatusId == PENDING_STATUS_ID && e.IsDeleted != true)
+                .OrderBy(e => e.CreatedAt)
+                .ToList();
+
+            var result = new List<PendingApprovalDto>();
+
+            foreach (var evt in pendingEvents)
+            {
+                var subEventsCount = allEvents.Count(e => e.ParentEventId == evt.EventId);
+
+                var logs = await _unitOfWork.EventLogs.GetLogsByEventIdAsync(evt.EventId);
+                var submissionLog = logs
+                    .Where(l => l.Action == "SubmittedForApproval")
+                    .OrderByDescending(l => l.CreatedAt)
+                    .FirstOrDefault();
+
+                result.Add(new PendingApprovalDto
+                {
+                    EventId = evt.EventId,
+                    EventName = evt.EventName,
+                    StartTime = evt.StartTime,
+                    EndTime = evt.EndTime,
+                    Budget = evt.EstimatedCost,
+                    ExpectedAttendees = evt.ExpectedAttendees,
+                    CreatedByName = evt.CreatedByNavigation?.FullName ?? "Unknown",
+                    SubmittedDate = evt.UpdatedAt ?? evt.CreatedAt ?? DateTime.Now,
+                    SubEventsCount = subEventsCount,
+                    SubmitterNote = submissionLog?.Details
+                });
+            }
+
+            return result;
+        }
+
+        // Approve event
+        public async Task<EventDto> ApproveEventAsync(int eventId, EventDecisionDto dto, int directorId)
+        {
+            var evt = await _unitOfWork.Events.GetByIdAsync(eventId);
+            if (evt == null)
+                throw new InvalidOperationException("Event not found");
+
+            var permission = await _permissionHelper.CanApproveEventAsync(evt, directorId);
+            permission.ThrowIfDenied();
+
+            evt.StatusId = APPROVED_STATUS_ID;
+            evt.UpdatedAt = DateTime.Now;
+            await _unitOfWork.Events.UpdateAsync(evt);
+
+            var approval = new EventApproval
+            {
+                EventId = eventId,
+                DirectorId = directorId,
+                ApprovalStatus = "Approved",
+                Comment = dto.Comment,
+                CreatedAt = DateTime.Now
+            };
+            await _unitOfWork.EventApprovals.AddAsync(approval);
+
+            await LogEventActionAsync(eventId, directorId, "Approved", dto.Comment);
+
+            await _unitOfWork.SaveChangesAsync();
+
+            return _mapper.Map<EventDto>(await _unitOfWork.Events.GetByIdWithDetailsAsync(eventId));
+        }
+
+        // Reject event
+        public async Task<EventDto> RejectEventAsync(int eventId, EventDecisionDto dto, int directorId)
+        {
+            var evt = await _unitOfWork.Events.GetByIdAsync(eventId);
+            if (evt == null)
+                throw new InvalidOperationException("Event not found");
+
+            var permission = await _permissionHelper.CanApproveEventAsync(evt, directorId);
+            permission.ThrowIfDenied();
+
+            evt.StatusId = CANCELLED_STATUS_ID;
+            evt.UpdatedAt = DateTime.Now;
+            await _unitOfWork.Events.UpdateAsync(evt);
+
+            var approval = new EventApproval
+            {
+                EventId = eventId,
+                DirectorId = directorId,
+                ApprovalStatus = "Rejected",
+                Comment = dto.Comment,
+                CreatedAt = DateTime.Now
+            };
+            await _unitOfWork.EventApprovals.AddAsync(approval);
+
+            await LogEventActionAsync(eventId, directorId, "Rejected", dto.Comment);
+
+            await _unitOfWork.SaveChangesAsync();
+
+            return _mapper.Map<EventDto>(await _unitOfWork.Events.GetByIdWithDetailsAsync(eventId));
+        }
+
+        // Get approval history for a specific event
+        public async Task<List<EventApprovalDto>> GetApprovalHistoryAsync(int eventId)
+        {
+            var approvals = await _unitOfWork.EventApprovals.GetApprovalsByEventIdAsync(eventId);
+            var result = new List<EventApprovalDto>();
+
+            foreach (var approval in approvals)
+            {
+                var evt = await _unitOfWork.Events.GetByIdAsync(approval.EventId);
+                var director = await _unitOfWork.Users.GetByIdAsync(approval.DirectorId);
+
+                var dto = _mapper.Map<EventApprovalDto>(approval);
+                dto.EventName = evt?.EventName ?? "Unknown Event";
+                dto.DirectorName = director?.FullName ?? "Unknown Director";
+
+                result.Add(dto);
+            }
+
+            return result;
+        }
+
+        // Log event
+        private async Task LogEventActionAsync(int eventId, int userId, string action, string? details)
+        {
+            var log = new EventLog
+            {
+                EventId = eventId,
+                UserId = userId,
+                Action = action,
+                Details = details,
+                CreatedAt = DateTime.Now
+            };
+            await _unitOfWork.EventLogs.AddAsync(log);
+        }
+        #endregion
     }
 }
