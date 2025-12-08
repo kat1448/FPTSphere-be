@@ -1,10 +1,11 @@
-﻿using BusinessLayer.DTOs;
+using BusinessLayer.DTOs;
 using BusinessLayer.DTOs.Event;
 using BusinessLayer.DTOs.EventApproval;
 using BusinessLayer.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using BusinessLayer.Helpers;
 
 namespace WebApi.Controllers
 {
@@ -286,6 +287,124 @@ namespace WebApi.Controllers
             catch (UnauthorizedAccessException)
             {
                 return Forbid();
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+        [HttpGet("my")]
+        [Authorize(Roles = "Admin,Event Manager")]
+        public async Task<IActionResult> GetMyEvents(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10,
+        [FromQuery] int? statusId = null,
+        [FromQuery] DateTime? startDate = null,
+        [FromQuery] DateTime? endDate = null,
+        [FromQuery] int? locationId = null,
+        [FromQuery] int? externalLocationId = null,
+        [FromQuery] int? minAttendees = null,
+        [FromQuery] int? maxAttendees = null,
+        [FromQuery] decimal? minCost = null,
+        [FromQuery] decimal? maxCost = null,
+        [FromQuery] bool includeDeleted = false,
+        [FromQuery] string sortBy = "CreatedAt",
+        [FromQuery] bool sortDescending = true)
+        {
+            try
+            {
+                // 1. Lấy user id từ token
+                var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrEmpty(userIdString))
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot detect current user"));
+                }
+
+                var currentUserId = int.Parse(userIdString);
+
+                // 2. Tạo filter, ÉP theo EM hiện tại + chỉ main event
+                var filter = new EventFilterDto
+                {
+                    StatusId = statusId,
+                    StartDate = startDate,
+                    EndDate = endDate,
+                    LocationId = locationId,
+                    ExternalLocationId = externalLocationId,
+                    CreatedBy = currentUserId,   // chỉ event do user này tạo
+                    MinAttendees = minAttendees,
+                    MaxAttendees = maxAttendees,
+                    MinCost = minCost,
+                    MaxCost = maxCost,
+                    IncludeDeleted = includeDeleted,
+
+                    // ⭐ QUAN TRỌNG: chỉ lấy main event, loại sub-event
+                    OnlyMainEvents = true
+                };
+
+                // 3. Gọi service như bình thường
+                var result = await _eventService.GetEventsAsync(page, pageSize, filter, sortBy, sortDescending);
+
+                return Ok(ApiResponse<PagedResult<EventDto>>.SuccessResult(
+                    result,
+                    $"Retrieved {result.TotalRecords} events for current Event Manager"));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+        // ==================== OVERVIEW CHO EM HIỆN TẠI ====================
+        [HttpGet("my/overview")]
+        [Authorize(Roles = "Admin,Event Manager")]
+        public async Task<IActionResult> GetMyOverview()
+        {
+            try
+            {
+                // Lấy UserId từ JWT
+                var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrEmpty(userIdString))
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot detect current user"));
+                }
+
+                var currentUserId = int.Parse(userIdString);
+
+                // Gọi service lấy thống kê
+                var stats = await _eventService.GetMyEventStatisticsAsync(currentUserId);
+
+                return Ok(ApiResponse<EventStatistics>.SuccessResult(
+                    stats,
+                    "Overview statistics retrieved"));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+        // ==================== APPROVAL ENDPOINTS ====================
+
+        [HttpPost("{id}/submit")]
+        [Authorize(Roles = "Admin,Event Manager")]
+        public async Task<IActionResult> SubmitForApproval(int id)
+        {
+            try
+            {
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                var result = await _eventService.SubmitForApprovalAsync(id, userId);
+
+                if (result == null)
+                    return NotFound(ApiResponse<object>.ErrorResult("Event not found"));
+
+                return Ok(ApiResponse<EventDto>.SuccessResult(result, "Event submitted for approval"));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                // Không đủ quyền hoặc sai trạng thái
+                return Forbid(ex.Message);
             }
             catch (InvalidOperationException ex)
             {

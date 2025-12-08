@@ -63,6 +63,7 @@ builder.Services.AddScoped<IEventResourceService, EventResourceService>();
 builder.Services.AddScoped<EventValidationHelper>();
 builder.Services.AddScoped<EventPermissionHelper>();
 builder.Services.AddScoped<EventFilterHelper>();
+builder.Services.AddScoped<IEmailService, EmailService>();
 
 // JWT Authentication
 builder.Services.AddAuthentication(options =>

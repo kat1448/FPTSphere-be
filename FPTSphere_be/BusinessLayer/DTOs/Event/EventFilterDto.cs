@@ -28,6 +28,8 @@ namespace BusinessLayer.DTOs.Event
 
         public decimal? MaxCost { get; set; }
 
-        public bool IncludeDeleted { get; set; } = false;
+        public bool IncludeDeleted { get; set; } = false;   
+        public bool OnlyMainEvents { get; set; } = false; 
+        public bool OnlySubEvents { get; set; } = false;
     }
 }

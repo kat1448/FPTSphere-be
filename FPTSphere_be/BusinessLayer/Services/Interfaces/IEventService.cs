@@ -6,6 +6,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using BusinessLayer.DTOs.Event;
+using BusinessLayer.DTOs;
+using BusinessLayer.Helpers;
 
 namespace BusinessLayer.Services.Interfaces
 {
@@ -27,7 +30,11 @@ namespace BusinessLayer.Services.Interfaces
 
         Task<PublicEventDto?> GetPublicEventByIdAsync(int id);
         Task<PublicEventDto?> GetPublicEventWithSubEventsAsync(int id);
-
+        Task<EventStatistics> GetMyEventStatisticsAsync(int currentUserId);
+        // ⭐ PHÊ DUYỆT
+        Task<EventDto?> SubmitForApprovalAsync(int eventId, int currentUserId);
+        Task<List<EventInvitationDto>> SendInvitationsAsync(int eventId, int senderUserId, SendEventInvitationsDto dto);
+        
         // Event approval
         Task<List<PendingApprovalDto>> GetPendingApprovalsAsync();
         Task<EventDto> ApproveEventAsync(int eventId, EventDecisionDto dto, int directorId);
