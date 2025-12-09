@@ -60,6 +60,8 @@ builder.Services.AddScoped<IEventResourceService, EventResourceService>();
 builder.Services.AddScoped<EventValidationHelper>();
 builder.Services.AddScoped<EventPermissionHelper>();
 builder.Services.AddScoped<EventFilterHelper>();
+// Phải có đủ 2 dòng này:
+builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
 builder.Services.AddScoped<IEmailService, EmailService>();
 
 // JWT Authentication
