@@ -8,6 +8,7 @@ namespace BusinessLayer.Services.Interfaces
 {
     public interface IEmailService
     {
-        Task SendEmailAsync(string toEmail, string subject, string body, string? displayName = null);
+        Task SendEmailAsync(string toEmail, string subject, string body, string? recipientName = null);
+        Task SendEmailAsync(List<string> toEmails, string subject, string body);
     }
 }

@@ -15,6 +15,7 @@ namespace WebApi.Controllers
     public class EventsController : ControllerBase
     {
         private readonly IEventService _eventService;
+        private readonly IEmailService _emailService;
 
         public EventsController(IEventService eventService) => _eventService = eventService;
 
@@ -413,6 +414,66 @@ namespace WebApi.Controllers
             catch (Exception ex)
             {
                 return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+        /// <summary>
+        /// Send invitations for an approved event
+        /// </summary>
+        [HttpPost("{id}/invitations")]
+        [Authorize(Roles = "Admin,Event Manager")]
+        public async Task<IActionResult> SendInvitations(int id, [FromBody] SendEventInvitationsDto dto)
+        {
+            try
+            {
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    return BadRequest(ApiResponse<object>.ErrorResult("Invalid data", errors));
+                }
+
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                var result = await _eventService.SendInvitationsAsync(id, userId, dto);
+
+                return Ok(ApiResponse<List<EventInvitationDto>>.SuccessResult(
+                    result,
+                    $"Sent {result.Count} invitation(s) successfully"));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+        [HttpPost("test-email")]
+        [AllowAnonymous] // Chỉ để test, sau đó xóa hoặc đổi thành Authorize
+        public async Task<IActionResult> TestEmail([FromQuery] string toEmail)
+        {
+            try
+            {
+                await _emailService.SendEmailAsync(
+                    toEmail,
+                    "🎉 Test Email từ FPTSphere",
+                    @"<html>
+                <body style='font-family: Arial;'>
+                    <h1 style='color: #F37021;'>Xin chào!</h1>
+                    <p>Đây là email test từ hệ thống <strong>FPTSphere</strong>.</p>
+                    <p>Nếu bạn nhận được email này, nghĩa là cấu hình SMTP đã hoạt động! ✅</p>
+                </body>
+            </html>",
+                    "Test User"
+                );
+
+                return Ok(ApiResponse<object>.SuccessResult(null, $"Email sent to {toEmail}"));
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult($"Failed to send email: {ex.Message}"));
             }
         }
 
