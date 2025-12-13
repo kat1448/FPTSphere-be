@@ -659,7 +659,7 @@ namespace BusinessLayer.Services.Implementations
             var permission = await _permissionHelper.CanApproveEventAsync(evt, directorId);
             permission.ThrowIfDenied();
 
-            evt.StatusId = CANCELLED_STATUS_ID;
+            evt.StatusId = REJECTED_STATUS_ID;
             evt.UpdatedAt = DateTime.Now;
             await _unitOfWork.Events.UpdateAsync(evt);
 
