@@ -13,8 +13,9 @@ using System.Threading.Tasks;
 
 namespace BusinessLayer.Services.Implementations
 {
-    public class EventService : IEventService
-    {
+        public class EventService : IEventService
+        {
+          
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
         private readonly EventValidationHelper _validationHelper;
@@ -94,6 +95,32 @@ namespace BusinessLayer.Services.Implementations
             }
 
             return false;
+        }
+
+          public async Task<List<EventAttendanceDto>> GetRegisteredEventsAsync(int userId)
+            {
+                var attendances = await _unitOfWork.EventAttendances.GetByUserAsync(userId);
+                return _mapper.Map<List<EventAttendanceDto>>(attendances);
+            }
+
+        public async Task<List<RegisteredEventFullDto>> GetRegisteredEventsFullAsync(int userId)
+        {
+            var attendances = await _unitOfWork.EventAttendances.GetByUserWithEventFullAsync(userId);
+            var result = new List<RegisteredEventFullDto>();
+            foreach (var att in attendances)
+            {
+                var eventDto = _mapper.Map<EventDto>(att.Event); // Event đã có đầy đủ các quan hệ
+                result.Add(new RegisteredEventFullDto
+                {
+                    AttendanceId = att.AttendanceId,
+                    EventId = att.EventId,
+                    CheckinAt = att.CheckinAt,
+                    CheckoutAt = att.CheckoutAt,
+                    Method = att.Method,
+                    Event = eventDto
+                });
+            }
+            return result;
         }
 
         private async Task AutoUpdateAndSaveIfNeededAsync(IEnumerable<Event> events)
@@ -715,5 +742,71 @@ namespace BusinessLayer.Services.Implementations
             await _unitOfWork.EventLogs.AddAsync(log);
         }
         #endregion
+        // Đăng ký sự kiện cho user
+        public async Task<EventAttendanceDto> RegisterEventAsync(int eventId, int userId)
+        {
+            var eventObj = await _unitOfWork.Events.GetByIdAsync(eventId);
+            if (eventObj == null || eventObj.IsDeleted == true)
+                throw new InvalidOperationException("Event not found or deleted");
+
+            var userObj = await _unitOfWork.Users.GetByIdAsync(userId);
+            if (userObj == null)
+                throw new InvalidOperationException("User not found");
+        
+            // Kiểm tra đã đăng ký chưa (trực tiếp trên DB)
+            var existed = await _unitOfWork.EventAttendances.ExistsAsync(x => x.EventId == eventId && x.UserId == userId);
+            if (existed)
+                throw new InvalidOperationException("User already registered for this event");
+
+            var attendance = new EventAttendance
+            {
+                EventId = eventId,
+                UserId = userId,
+                CheckinAt = null,
+                CheckoutAt = null,
+                Method = "manual"
+            };
+            await _unitOfWork.EventAttendances.AddAsync(attendance);
+            await _unitOfWork.SaveChangesAsync();
+
+            return _mapper.Map<EventAttendanceDto>(attendance);
+        }
+
+        public async Task<EventAttendanceDto> CheckinEventAsync(int eventId, int userId)
+        {
+            var attendance = await _unitOfWork.EventAttendances.FindAsync(x => x.EventId == eventId && x.UserId == userId);
+            if (attendance == null)
+                throw new InvalidOperationException("User chưa đăng ký sự kiện này");
+            if (attendance.CheckinAt != null)
+                throw new InvalidOperationException("User đã checkin sự kiện này");
+            attendance.CheckinAt = DateTime.Now;
+            await _unitOfWork.SaveChangesAsync();
+            return _mapper.Map<EventAttendanceDto>(attendance);
+        }
+
+        public async Task<EventAttendanceDto> CheckoutEventAsync(int eventId, int userId)
+        {
+            var attendance = await _unitOfWork.EventAttendances.FindAsync(x => x.EventId == eventId && x.UserId == userId);
+            if (attendance == null)
+                throw new InvalidOperationException("User chưa đăng ký sự kiện này");
+            if (attendance.CheckinAt == null)
+                throw new InvalidOperationException("User chưa checkin, không thể checkout");
+            if (attendance.CheckoutAt != null)
+                throw new InvalidOperationException("User đã checkout sự kiện này");
+            attendance.CheckoutAt = DateTime.Now;
+            await _unitOfWork.SaveChangesAsync();
+            return _mapper.Map<EventAttendanceDto>(attendance);
+        }
+
+        public async Task UnregisterEventAsync(int eventId, int userId)
+        {
+            var attendance = await _unitOfWork.EventAttendances.FindAsync(x => x.EventId == eventId && x.UserId == userId);
+            if (attendance == null)
+                throw new InvalidOperationException("Bạn chưa đăng ký sự kiện này");
+            if (attendance.CheckinAt != null)
+                throw new InvalidOperationException("Bạn đã checkin, không thể hủy đăng ký");
+            await _unitOfWork.EventAttendances.DeleteAsync(attendance);
+            await _unitOfWork.SaveChangesAsync();
+        }
     }
 }

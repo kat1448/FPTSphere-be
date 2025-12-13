@@ -138,6 +138,8 @@ namespace BusinessLayer.Mappings
                 .ForMember(d => d.ExternalServices, opt => opt.Ignore())
                 .ForMember(d => d.StudentFeedbackHeaders, opt => opt.Ignore());
 
+            // Mapping cho EventAttendance
+            CreateMap<EventAttendance, EventAttendanceDto>();
         }
     }
 

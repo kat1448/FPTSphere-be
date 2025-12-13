@@ -40,5 +40,12 @@ namespace BusinessLayer.Services.Interfaces
         Task<EventDto> ApproveEventAsync(int eventId, EventDecisionDto dto, int directorId);
         Task<EventDto> RejectEventAsync(int eventId, EventDecisionDto dto, int directorId);
         Task<List<EventApprovalDto>> GetApprovalHistoryAsync(int eventId);
+        // Đăng ký sự kiện cho user
+        Task<List<EventAttendanceDto>> GetRegisteredEventsAsync(int userId);
+        Task<EventAttendanceDto> RegisterEventAsync(int eventId, int userId);
+        Task<EventAttendanceDto> CheckinEventAsync(int eventId, int userId);
+        Task<EventAttendanceDto> CheckoutEventAsync(int eventId, int userId);
+        Task<List<RegisteredEventFullDto>> GetRegisteredEventsFullAsync(int userId);
+        Task UnregisterEventAsync(int eventId, int userId);
     }
 }

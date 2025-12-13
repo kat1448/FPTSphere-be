@@ -32,6 +32,7 @@ builder.Services.AddScoped<IExternalServiceRepository, ExternalServiceRepository
 builder.Services.AddScoped<IEventResourceRepository, EventResourceRepository>();
 builder.Services.AddScoped<IEventApprovalRepository, EventApprovalRepository>();
 builder.Services.AddScoped<IEventLogRepository, EventLogRepository>();
+builder.Services.AddScoped<IEventTaskRepository, EventTaskRepository>();
 
 
 // AutoMapper
@@ -60,6 +61,7 @@ builder.Services.AddScoped<IEventStatusService, EventStatusService>();
 builder.Services.AddScoped<IEventService, EventService>();
 builder.Services.AddScoped<IExternalServiceService, ExternalServiceService>();
 builder.Services.AddScoped<IEventResourceService, EventResourceService>();
+builder.Services.AddScoped<IEventTaskService, EventTaskService>();
 builder.Services.AddScoped<EventValidationHelper>();
 builder.Services.AddScoped<EventPermissionHelper>();
 builder.Services.AddScoped<EventFilterHelper>();

@@ -23,7 +23,8 @@ namespace DataLayer.Repositories.Interfaces
         IEventResourceRepository EventResources { get; }
         IEventApprovalRepository EventApprovals { get; }
         IEventLogRepository EventLogs { get; }
-        IEventInvitationRepository EventInvitations {  get; }
+        IEventInvitationRepository EventInvitations { get; }
+        IEventAttendanceRepository EventAttendances { get; }
 
     }
 }

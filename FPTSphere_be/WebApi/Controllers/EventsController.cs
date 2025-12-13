@@ -13,6 +13,7 @@ namespace WebApi.Controllers
     [Route("api/[controller]")]
     [AllowAnonymous]
     public class EventsController : ControllerBase
+
     {
         private readonly IEventService _eventService;
         private readonly IEmailService _emailService;
@@ -559,6 +560,158 @@ namespace WebApi.Controllers
                 return Ok(ApiResponse<List<EventApprovalDto>>.SuccessResult(
                     result,
                     $"Retrieved {result.Count} approval records"));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+        /// <summary>
+        /// Đăng ký tham gia sự kiện cho user hiện tại
+        /// </summary>
+        [HttpPost("{id}/register")]
+        [Authorize] // Chỉ cần đăng nhập
+        public async Task<IActionResult> RegisterEvent(int id)
+        {
+            try
+            {
+                var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrEmpty(userIdString))
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot detect current user"));
+
+                var userId = int.Parse(userIdString);
+                var result = await _eventService.RegisterEventAsync(id, userId);
+                return Ok(ApiResponse<EventAttendanceDto>.SuccessResult(result, "Đăng ký thành công"));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+
+        /// <summary>
+        /// Checkin sự kiện cho user hiện tại
+        /// </summary>
+        [HttpPost("{id}/checkin")]
+        [Authorize]
+        public async Task<IActionResult> CheckinEvent(int id)
+        {
+            try
+            {
+                var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrEmpty(userIdString))
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot detect current user"));
+
+                var userId = int.Parse(userIdString);
+                var result = await _eventService.CheckinEventAsync(id, userId);
+                return Ok(ApiResponse<EventAttendanceDto>.SuccessResult(result, "Checkin thành công"));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+
+        /// <summary>
+        /// Checkout sự kiện cho user hiện tại
+        /// </summary>
+        [HttpPost("{id}/checkout")]
+        [Authorize]
+        public async Task<IActionResult> CheckoutEvent(int id)
+        {
+            try
+            {
+                var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrEmpty(userIdString))
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot detect current user"));
+
+                var userId = int.Parse(userIdString);
+                var result = await _eventService.CheckoutEventAsync(id, userId);
+                return Ok(ApiResponse<EventAttendanceDto>.SuccessResult(result, "Checkout thành công"));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+        // /// <summary>
+        // /// Lấy danh sách sự kiện user đã đăng ký
+        // /// </summary>
+        // [HttpGet("list-registered-events")]
+        // [Authorize]
+        // public async Task<IActionResult> GetRegisteredEvents()
+        // {
+        //     try
+        //     {
+        //         var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        //         if (string.IsNullOrEmpty(userIdString))
+        //             return Unauthorized(ApiResponse<object>.ErrorResult("Cannot detect current user"));
+
+        //         var userId = int.Parse(userIdString);
+        //         var result = await _eventService.GetRegisteredEventsAsync(userId);
+        //         return Ok(ApiResponse<List<EventAttendanceDto>>.SuccessResult(result, "Danh sách sự kiện đã đăng ký"));
+        //     }
+        //     catch (Exception ex)
+        //     {
+        //         return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+        //     }
+        // }
+
+        /// <summary>
+        /// Lấy danh sách sự kiện user đã đăng ký kèm đầy đủ thông tin event và các quan hệ
+        /// </summary>
+        [HttpGet("list-events-myself")]
+        [Authorize]
+        public async Task<IActionResult> GetRegisteredEventsFull()
+        {
+            try
+            {
+                var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrEmpty(userIdString))
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot detect current user"));
+
+                var userId = int.Parse(userIdString);
+                var result = await _eventService.GetRegisteredEventsFullAsync(userId);
+                return Ok(ApiResponse<List<RegisteredEventFullDto>>.SuccessResult(result, "Danh sách sự kiện đã đăng ký (đầy đủ thông tin)"));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+
+        /// <summary>
+        /// Hủy đăng ký sự kiện cho user hiện tại
+        /// </summary>
+        [HttpPost("{id}/unregister")]
+        [Authorize]
+        public async Task<IActionResult> UnregisterEvent(int id)
+        {
+            try
+            {
+                var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrEmpty(userIdString))
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot detect current user"));
+
+                var userId = int.Parse(userIdString);
+                await _eventService.UnregisterEventAsync(id, userId);
+                return Ok(ApiResponse<object>.SuccessResult(null, "Hủy đăng ký thành công"));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
             }
             catch (Exception ex)
             {

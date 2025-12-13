@@ -70,6 +70,9 @@ namespace DataLayer.Repositories.Implementations
             }
         }
 
+        private IEventAttendanceRepository? _eventAttendances;
+        public IEventAttendanceRepository EventAttendances => _eventAttendances ??= new EventAttendanceRepository(_context);
+
         // TRANSACTION MANAGEMENT
         public async Task<int> SaveChangesAsync()
         {
