@@ -4,7 +4,6 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using DataLayer.Data;
-using DataLayer.Models;
 using DataLayer.Repositories.Interfaces;
 using Microsoft.EntityFrameworkCore.Storage;
 
