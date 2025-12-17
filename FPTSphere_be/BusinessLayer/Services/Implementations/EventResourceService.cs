@@ -19,38 +19,37 @@ namespace BusinessLayer.Services.Implementations
 
         public async Task<EventResourceResponseDto> AssignResourceToEventAsync(int eventId, AssignResourceToEventDto dto)
         {
-            // 1. Validate event exists
-            var eventEntity = await _unitOfWork.Events.GetByIdAsync(eventId);
-            if (eventEntity == null)
-                throw new KeyNotFoundException($"Event with ID {eventId} not found");
+            var eventEntity = await _unitOfWork.Events.GetByIdAsync(eventId)
+                ?? throw new KeyNotFoundException($"Event with ID {eventId} not found");
 
-            // 2. Validate resource exists
-            var resource = await _unitOfWork.Resources.GetByIdAsync(dto.ResourceId);
-            if (resource == null)
-                throw new KeyNotFoundException($"Resource with ID {dto.ResourceId} not found");
+            var resource = await _unitOfWork.Resources.GetByIdAsync(dto.ResourceId)
+                ?? throw new KeyNotFoundException($"Resource with ID {dto.ResourceId} not found");
 
-            // 3. Check if resource is active
             if (resource.IsActive != true)
                 throw new InvalidOperationException($"Resource '{resource.Name}' is not active and cannot be assigned");
 
-            // 4. Check if resource already assigned to this event
             var eventResourceRepo = _unitOfWork.EventResources;
+
             var isAssigned = await eventResourceRepo.IsResourceAssignedAsync(eventId, dto.ResourceId);
             if (isAssigned)
                 throw new InvalidOperationException($"Resource '{resource.Name}' is already assigned to this event. Use update instead.");
 
-            // 5. Check availability (total quantity - already used)
-            var totalUsed = await eventResourceRepo.GetTotalQuantityUsedForResourceAsync(dto.ResourceId);
-            var available = resource.Quantity - totalUsed;
+            // ✅ NEW: availability theo time + status
+            var blockingStatusIds = new[] { 2, 3, 4 }; // Pending, Approved, InProgress
+            var usedInRange = await eventResourceRepo.GetTotalQuantityUsedForResourceInRangeAsync(
+                dto.ResourceId,
+                eventEntity.StartTime,
+                eventEntity.EndTime,
+                blockingStatusIds,
+                ignoreEventId: eventId // nếu event đang update/assign lại
+            );
 
+            var available = resource.Quantity - usedInRange;
             if (dto.QuantityUsed > available)
-            {
                 throw new InvalidOperationException(
-                    $"Insufficient quantity. Requested: {dto.QuantityUsed}, Available: {available} " +
-                    $"(Total: {resource.Quantity}, Already used: {totalUsed})");
-            }
+                    $"Thiết bị '{resource.Name}' không đủ số lượng trong khung giờ này. Requested: {dto.QuantityUsed}, Available: {available}");
 
-            // 6. Create assignment
+            // create assignment
             var eventResource = new EventResource
             {
                 EventId = eventId,
@@ -61,7 +60,6 @@ namespace BusinessLayer.Services.Implementations
             await eventResourceRepo.AddAsync(eventResource);
             await _unitOfWork.SaveChangesAsync();
 
-            // 7. Return full details
             var created = await eventResourceRepo.GetEventResourceAsync(eventId, dto.ResourceId);
             return _mapper.Map<EventResourceResponseDto>(created!);
         }
@@ -100,45 +98,48 @@ namespace BusinessLayer.Services.Implementations
         }
 
         public async Task<EventResourceResponseDto> UpdateEventResourceAsync(
-            int eventId,
-            int resourceId,
-            UpdateEventResourceDto dto)
+     int eventId,
+     int resourceId,
+     UpdateEventResourceDto dto)
         {
-            // 1. Get existing assignment
             var eventResourceRepo = _unitOfWork.EventResources;
-            var eventResource = await eventResourceRepo.GetEventResourceAsync(eventId, resourceId);
 
-            if (eventResource == null)
-                throw new KeyNotFoundException(
-                    $"Resource assignment not found for event {eventId} and resource {resourceId}");
+            var eventResource = await eventResourceRepo.GetEventResourceAsync(eventId, resourceId)
+                ?? throw new KeyNotFoundException("Resource assignment not found");
 
-            // 2. Validate new quantity doesn't exceed availability
-            if (eventResource.Resource != null)
-            {
-                // Get total used by OTHER events
-                var totalUsedByOthers = await eventResourceRepo.GetTotalQuantityUsedForResourceAsync(resourceId)
-                                        - eventResource.QuantityUsed; // Exclude current
+            var evt = await _unitOfWork.Events.GetByIdAsync(eventId)
+                ?? throw new InvalidOperationException("Event not found");
 
-                var available = eventResource.Resource.Quantity - totalUsedByOthers;
+            if (dto.QuantityUsed <= 0)
+                throw new InvalidOperationException("Quantity must be greater than 0");
 
-                if (dto.QuantityUsed > available)
-                {
-                    throw new InvalidOperationException(
-                        $"Insufficient quantity. Requested: {dto.QuantityUsed}, Available: {available} " +
-                        $"(Total: {eventResource.Resource.Quantity}, Used by other events: {totalUsedByOthers})");
-                }
-            }
+            var blockingStatusIds = new[] { 2, 3, 4 }; // Pending, Approved, InProgress
 
-            // 3. Update quantity
+            // ✅ TÍNH ĐÚNG availability (theo time + status)
+            var usedInRangeByOthers =
+                await eventResourceRepo.GetTotalQuantityUsedForResourceInRangeAsync(
+                    resourceId,
+                    evt.StartTime,
+                    evt.EndTime,
+                    blockingStatusIds,
+                    ignoreEventId: eventId
+                );
+
+            var available = eventResource.Resource!.Quantity - usedInRangeByOthers;
+
+            if (dto.QuantityUsed > available)
+                throw new InvalidOperationException(
+                    $"Not enough resource. Requested: {dto.QuantityUsed}, Available: {available}");
+
             eventResource.QuantityUsed = dto.QuantityUsed;
 
             await eventResourceRepo.UpdateAsync(eventResource);
             await _unitOfWork.SaveChangesAsync();
 
-            // 4. Return updated details
             var updated = await eventResourceRepo.GetEventResourceAsync(eventId, resourceId);
             return _mapper.Map<EventResourceResponseDto>(updated!);
         }
+
 
         public async Task<bool> RemoveResourceFromEventAsync(int eventId, int resourceId)
         {
@@ -171,18 +172,29 @@ namespace BusinessLayer.Services.Implementations
             return _mapper.Map<IEnumerable<EventResourceResponseDto>>(eventResources);
         }
 
-        public async Task<int> GetResourceAvailabilityAsync(int resourceId)
+        public async Task<int> GetResourceAvailabilityAsync(
+            int resourceId,
+            DateTime startTime,
+            DateTime endTime)
         {
-            // Validate resource exists
-            var resource = await _unitOfWork.Resources.GetByIdAsync(resourceId);
-            if (resource == null)
-                throw new KeyNotFoundException($"Resource with ID {resourceId} not found");
+            var resource = await _unitOfWork.Resources.GetByIdAsync(resourceId)
+                ?? throw new KeyNotFoundException($"Resource {resourceId} not found");
 
-            // Calculate availability
-            var eventResourceRepo = _unitOfWork.EventResources;
-            var totalUsed = await eventResourceRepo.GetTotalQuantityUsedForResourceAsync(resourceId);
+            var blockingStatusIds = new[] { 2, 3, 4 }; // Pending, Approved, InProgress
 
-            return resource.Quantity - totalUsed;
+            var usedInRange = await _unitOfWork.EventResources
+                .GetTotalQuantityUsedForResourceInRangeAsync(
+                    resourceId,
+                    startTime,
+                    endTime,
+                    blockingStatusIds
+                );
+
+            var available = resource.Quantity - usedInRange;
+
+            return Math.Max(0, available);
         }
+
+
     }
 }

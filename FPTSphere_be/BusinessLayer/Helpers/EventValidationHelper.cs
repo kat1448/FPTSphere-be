@@ -2,6 +2,7 @@
 using System.Linq;
 using System.Threading.Tasks;
 using DataLayer.Repositories.Interfaces;
+using Microsoft.EntityFrameworkCore;
 
 namespace BusinessLayer.Helpers
 {
@@ -33,8 +34,8 @@ namespace BusinessLayer.Helpers
             int? expectedAttendees,
             DateTime? parentStartTime = null,
             DateTime? parentEndTime = null,
-            int? parentEventId = null,   // ⭐ new: để biết sub-event thuộc event nào
-            int? currentEventId = null   // ⭐ new: để bỏ qua chính nó khi update
+            int? parentEventId = null,   
+            int? currentEventId = null  
         )
         {
             // 1. Basic field validation
@@ -70,10 +71,7 @@ namespace BusinessLayer.Helpers
 
             return ValidationResult.Success();
         }
-
-        /// <summary>
         /// Validate time ranges with optional parent event constraints
-        /// </summary>
         public ValidationResult ValidateTimeRange(
             DateTime startTime,
             DateTime endTime,
@@ -222,32 +220,26 @@ namespace BusinessLayer.Helpers
         ///  - ignoreEventId: chính event đang update
         ///  - ignoreParentEventId: parent event khi tạo/đổi sub-event
         /// </summary>
-        public async Task<ValidationResult> ValidateLocationAvailabilityAsync(
-            int locationId,
-            DateTime startTime,
-            DateTime endTime,
-            int? ignoreEventId = null,
-            int? ignoreParentEventId = null)
+        public async Task<ValidationResult> ValidateLocationAvailabilityAsync( int locationId,DateTime startTime, DateTime endTime,int? ignoreEventId = null,int? ignoreParentEventId = null)
         {
-            var allEvents = await _unitOfWork.Events.GetAllWithDetailsAsync();
+            // Only these statuses will lock/occupy a location
+            var blockingStatusIds = new[] { 2, 3, 4 }; // Pending, Approved, InProgress
 
-            var conflicts = allEvents
-                .Where(e =>
-                    e.IsDeleted != true &&
-                    e.LocationId == locationId &&
-                    (!ignoreEventId.HasValue || e.EventId != ignoreEventId.Value) &&
-                    (!ignoreParentEventId.HasValue || e.EventId != ignoreParentEventId.Value) &&
-                    TimeRangeOverlap(e.StartTime, e.EndTime, startTime, endTime))
-                .ToList();
+            // ⚠️ Nếu repo base của bạn có Query() thì dùng:
+            var hasConflict = await _unitOfWork.Events.Query()
+                .Where(e => e.IsDeleted != true)
+                .Where(e => e.LocationId == locationId)
+                .Where(e => blockingStatusIds.Contains(e.StatusId))
+                .Where(e => !ignoreEventId.HasValue || e.EventId != ignoreEventId.Value)
+                .Where(e => !ignoreParentEventId.HasValue || e.EventId != ignoreParentEventId.Value)
+                .AnyAsync(e => e.StartTime < endTime && e.EndTime > startTime);
 
-            if (conflicts.Any())
-            {
-                // Có thể log thêm thông tin event bị conflict nếu muốn
-                return ValidationResult.Fail("Location is already booked in the selected time range.");
-            }
+            if (hasConflict)
+                return ValidationResult.Fail("Phòng này đang được giữ chỗ (Pending/Approved/InProgress) trong khung thời gian bạn chọn. Vui lòng chọn phòng khác.");
 
             return ValidationResult.Success();
         }
+
 
         /// <summary>
         /// Basic time overlap check:

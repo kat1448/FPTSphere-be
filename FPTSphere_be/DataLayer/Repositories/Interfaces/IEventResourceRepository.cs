@@ -38,5 +38,14 @@ namespace DataLayer.Repositories.Interfaces
         /// Get total quantity used for a resource across all events
         /// </summary>
         Task<int> GetTotalQuantityUsedForResourceAsync(int resourceId);
+        Task<int> GetTotalQuantityUsedForResourceInRangeAsync(
+     int resourceId,
+     DateTime startTime,
+     DateTime endTime,
+     int[] blockingStatusIds,
+     int? ignoreEventId = null);
+
+
+
     }
 }

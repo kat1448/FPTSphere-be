@@ -227,25 +227,18 @@ namespace WebApi.Controllers
         /// <param name="resourceId">Resource ID</param>
         /// <returns>Available quantity</returns>
         [HttpGet("resources/{resourceId}/availability")]
-        [ProducesResponseType(typeof(ApiResponse<int>), 200)]
-        [ProducesResponseType(typeof(ApiResponse<object>), 404)]
-        public async Task<IActionResult> GetResourceAvailability(int resourceId)
+        public async Task<IActionResult> GetResourceAvailability(
+            int resourceId,
+            [FromQuery] DateTime startTime,
+            [FromQuery] DateTime endTime)
         {
-            try
-            {
-                var available = await _eventResourceService.GetResourceAvailabilityAsync(resourceId);
-                return Ok(ApiResponse<int>.SuccessResult(
-                    available,
-                    $"Available quantity: {available}"));
-            }
-            catch (KeyNotFoundException ex)
-            {
-                return NotFound(ApiResponse<object>.ErrorResult(ex.Message));
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, ApiResponse<object>.ErrorResult($"Internal server error: {ex.Message}"));
-            }
+            var available = await _eventResourceService
+                .GetResourceAvailabilityAsync(resourceId, startTime, endTime);
+
+            return Ok(ApiResponse<int>.SuccessResult(
+                available,
+                $"Available quantity: {available}"));
         }
+
     }
 }

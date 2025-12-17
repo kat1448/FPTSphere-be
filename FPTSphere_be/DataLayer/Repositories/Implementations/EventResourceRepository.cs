@@ -67,5 +67,33 @@ namespace DataLayer.Repositories.Implementations
                 .Where(er => er.ResourceId == resourceId)
                 .SumAsync(er => er.QuantityUsed);
         }
+        public async Task<int> GetTotalQuantityUsedForResourceInRangeAsync(
+            int resourceId,
+            DateTime startTime,
+            DateTime endTime,
+            int[] blockingStatusIds,
+            int? ignoreEventId = null)
+        {
+            var q = _context.EventResources
+                .Where(er => er.ResourceId == resourceId)
+                .Join(
+                    _context.Events.Where(e => e.IsDeleted != true),
+                    er => er.EventId,
+                    e => e.EventId,
+                    (er, e) => new { er, e }
+                )
+                // chỉ tính event đang giữ chỗ
+                .Where(x => blockingStatusIds.Contains(x.e.StatusId))
+                // overlap time
+                .Where(x => x.e.StartTime < endTime && x.e.EndTime > startTime);
+
+            if (ignoreEventId.HasValue)
+                q = q.Where(x => x.e.EventId != ignoreEventId.Value);
+
+            return await q.SumAsync(x => x.er.QuantityUsed);
+        }
+
+
+
     }
 }

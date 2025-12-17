@@ -26,5 +26,6 @@ namespace DataLayer.Repositories.Interfaces
         /// Get sub-events by parent event ID
         /// </summary>
         Task<List<Event>> GetSubEventsByParentIdAsync(int parentEventId);
+        IQueryable<Event> Query();
     }
 }

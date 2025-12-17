@@ -13,6 +13,8 @@ namespace DataLayer.Repositories.Implementations
     {
         public EventRepository(EventDbContext context) : base(context) { }
 
+        public IQueryable<Event> Query() => _dbSet.AsQueryable();
+
         /// <summary>
         /// Get event by ID with all details (no sub-events)
         /// </summary>

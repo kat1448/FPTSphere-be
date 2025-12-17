@@ -42,6 +42,9 @@ namespace BusinessLayer.Services.Interfaces
         /// <summary>
         /// Get resource availability (total - used)
         /// </summary>
-        Task<int> GetResourceAvailabilityAsync(int resourceId);
+        Task<int> GetResourceAvailabilityAsync(int resourceId,
+    DateTime startTime,
+    DateTime endTime);
+
     }
 }
