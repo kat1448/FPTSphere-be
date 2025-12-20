@@ -22,10 +22,7 @@ namespace BusinessLayer.Helpers
         private const int DRAFT_STATUS_ID = 1;
         private const int PENDING_STATUS_ID = 2;
         private const int APPROVED_STATUS_ID = 3;
-        private const int INPROGRESS_STATUS_ID = 4;
-        private const int COMPLETED_STATUS_ID = 5;
         private const int CANCELLED_STATUS_ID = 6;
-        private const int REJECTED_STATUS_ID = 7;
 
         public EventPermissionHelper(IUnitOfWork unitOfWork)
         {
@@ -234,13 +231,9 @@ namespace BusinessLayer.Helpers
             {
                 (DRAFT_STATUS_ID, PENDING_STATUS_ID),           // Draft → Pending
                 (PENDING_STATUS_ID, APPROVED_STATUS_ID),        // Pending → Approved
-                (PENDING_STATUS_ID, REJECTED_STATUS_ID),        // Pending → Rejected
                 (DRAFT_STATUS_ID, CANCELLED_STATUS_ID),         // Draft → Cancelled
                 (PENDING_STATUS_ID, CANCELLED_STATUS_ID),       // Pending → Cancelled
-                (APPROVED_STATUS_ID, CANCELLED_STATUS_ID),      // Approved → Cancelled
-                (APPROVED_STATUS_ID, INPROGRESS_STATUS_ID),    // Approved → In Progress
-                (INPROGRESS_STATUS_ID, COMPLETED_STATUS_ID),   // In Progress → Completed
-                (INPROGRESS_STATUS_ID, CANCELLED_STATUS_ID),   // In Progress → Cancelled
+                (APPROVED_STATUS_ID, CANCELLED_STATUS_ID)       // Approved → Cancelled
             };
 
             foreach (var (from, to) in allowedTransitions)
@@ -265,12 +258,9 @@ namespace BusinessLayer.Helpers
             return statusId switch
             {
                 DRAFT_STATUS_ID => "Draft",
-                PENDING_STATUS_ID => "Pending Approval",
+                PENDING_STATUS_ID => "Pending",
                 APPROVED_STATUS_ID => "Approved",
-                INPROGRESS_STATUS_ID => "In Progress",
-                COMPLETED_STATUS_ID => "Completed",
                 CANCELLED_STATUS_ID => "Cancelled",
-                REJECTED_STATUS_ID => "Rejected",
                 _ => "Unknown"
             };
         }
