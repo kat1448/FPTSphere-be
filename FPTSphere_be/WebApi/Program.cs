@@ -1,4 +1,5 @@
 ﻿using BusinessLayer.DTOs;
+using BusinessLayer.Helpers;
 using BusinessLayer.Mappings;
 using BusinessLayer.Services;
 using BusinessLayer.Services.Implementations;
@@ -27,6 +28,12 @@ builder.Services.AddScoped<IResourceRepository, ResourceRepository>();
 builder.Services.AddScoped<IExternalLocationRepository, ExternalLocationRepository>();
 builder.Services.AddScoped<IEventStatusRepository, EventStatusRepository>();
 builder.Services.AddScoped<IEventRepository, EventRepository>();
+builder.Services.AddScoped<IExternalServiceRepository, ExternalServiceRepository>();
+builder.Services.AddScoped<IEventResourceRepository, EventResourceRepository>();
+builder.Services.AddScoped<IEventApprovalRepository, EventApprovalRepository>();
+builder.Services.AddScoped<IEventLogRepository, EventLogRepository>();
+builder.Services.AddScoped<IEventTaskRepository, EventTaskRepository>();
+
 
 // AutoMapper
 builder.Services.AddAutoMapper(typeof(UserMappingProfile));
@@ -37,7 +44,10 @@ builder.Services.AddAutoMapper(
     typeof(ResourceMappingProfile),
     typeof(EventStatusMappingProfile),
     typeof(EventMappingProfile),
-    typeof(ExternalLocationMappingProfile));
+    typeof(ExternalServiceMappingProfile),
+    typeof(EventResourceMappingProfile),
+    typeof(ExternalLocationMappingProfile),
+    typeof(EventApprovalMappingProfile));
 
 
 // Services
@@ -49,6 +59,15 @@ builder.Services.AddScoped<IResourceService, ResourceService>();
 builder.Services.AddScoped<IExternalLocationService, ExternalLocationService>();
 builder.Services.AddScoped<IEventStatusService, EventStatusService>();
 builder.Services.AddScoped<IEventService, EventService>();
+builder.Services.AddScoped<IExternalServiceService, ExternalServiceService>();
+builder.Services.AddScoped<IEventResourceService, EventResourceService>();
+builder.Services.AddScoped<IEventTaskService, EventTaskService>();
+builder.Services.AddScoped<EventValidationHelper>();
+builder.Services.AddScoped<EventPermissionHelper>();
+builder.Services.AddScoped<EventFilterHelper>();
+// Phải có đủ 2 dòng này:
+builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
+builder.Services.AddScoped<IEmailService, EmailService>();
 
 // JWT Authentication
 builder.Services.AddAuthentication(options =>
@@ -78,9 +97,21 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowFrontend", builder =>
     {
         builder.WithOrigins(
+
+                   "http://localhost:3000",      // Original
+                   "http://127.0.0.1:3000",
+                   "https://localhost:3000",
+                   "http://localhost:3001",      // ✅ ADD THIS!
+                   "http://127.0.0.1:3001",      // ✅ ADD THIS!
+                   "https://localhost:3001",     // ✅ ADD THIS!
                    "http://localhost:5173",
                    "http://127.0.0.1:5173",
-                   "https://localhost:5173"
+                   "https://localhost:5173",
+                                     // Port 5174 (Your current frontend) ← ADDED
+                   "http://localhost:5174",
+                   "http://127.0.0.1:5174",
+                   "https://localhost:5174"
+
                )
                .AllowAnyMethod()
                .AllowAnyHeader()

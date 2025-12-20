@@ -1,73 +1,177 @@
-﻿using System;
+using AutoMapper;
+using BusinessLayer.DTOs;
+using BusinessLayer.DTOs.Event;
+using BusinessLayer.DTOs.EventApproval;
+using BusinessLayer.Helpers;
+using BusinessLayer.Services.Interfaces;
+using DataLayer.Models;
+using DataLayer.Repositories.Implementations;
+using DataLayer.Repositories.Interfaces;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using AutoMapper;
-using BusinessLayer.DTOs.Event;
-using BusinessLayer.DTOs;
-using BusinessLayer.Services.Interfaces;
-using DataLayer.Models;
-using DataLayer.Repositories.Interfaces;
+using Microsoft.EntityFrameworkCore;
+
 
 namespace BusinessLayer.Services.Implementations
 {
-    public class EventService : IEventService
-    {
+        public class EventService : IEventService
+        {
+          
         private readonly IUnitOfWork _unitOfWork;
         private readonly IMapper _mapper;
+        private readonly EventValidationHelper _validationHelper;
+        private readonly EventPermissionHelper _permissionHelper;
+        private readonly EventFilterHelper _filterHelper;
+        private readonly IEventTaskService _eventTaskService;
+        private readonly IEmailService _emailService;
+        private readonly IEventTaskRepository _eventTaskRepository;
+        private const int DRAFT_STATUS_ID = 1;
+        private const int PENDING_STATUS_ID = 2;
+        private const int APPROVED_STATUS_ID = 3;
+        private const int INPROGRESS_STATUS_ID = 4;
+        private const int COMPLETED_STATUS_ID = 5;
+        private const int CANCELLED_STATUS_ID = 6;
+        private const int REJECTED_STATUS_ID = 7;
 
-        public EventService(IUnitOfWork unitOfWork, IMapper mapper)
+        public EventService(
+            IUnitOfWork unitOfWork,
+            IMapper mapper,
+            EventValidationHelper validationHelper,
+            EventPermissionHelper permissionHelper,
+            IEventTaskService eventTaskService,
+            IEventTaskRepository eventTaskRepository,
+            IEmailService emailService,
+            EventFilterHelper filterHelper)
         {
             _unitOfWork = unitOfWork;
             _mapper = mapper;
+            _validationHelper = validationHelper;
+            _permissionHelper = permissionHelper;
+            _filterHelper = filterHelper;
+            _emailService = emailService;
+            _eventTaskService = eventTaskService;
+            _eventTaskRepository = eventTaskRepository;
+
         }
 
-        // ==================== MAIN EVENT METHODS ====================
+        #region Auto status update
 
-        public async Task<PagedResult<EventDto>> GetEventsAsync(int page, int pageSize, EventFilterDto? filter, string sortBy, bool sortDescending)
+        /// <summary>
+        /// Tự động cập nhật trạng thái dựa trên StartTime / EndTime.
+        /// Chỉ can thiệp các status: Approved / In Progress / Completed.
+        /// Trả về true nếu StatusId thay đổi.
+        /// </summary>
+        private bool AutoUpdateStatus(Event ev)
         {
-            if (page < 1) page = 1;
-            if (pageSize < 1) pageSize = 10;
-            if (pageSize > 100) pageSize = 100;
+            if (ev == null || ev.IsDeleted == true)
+                return false;
+
+            // Không tự động động chạm các trạng thái đặc biệt
+            if (ev.StatusId == DRAFT_STATUS_ID ||
+                ev.StatusId == PENDING_STATUS_ID ||
+                ev.StatusId == CANCELLED_STATUS_ID ||
+                ev.StatusId == REJECTED_STATUS_ID)
+            {
+                return false;
+            }
+
+            var now = DateTime.Now;
+            var oldStatus = ev.StatusId;
+            var newStatus = oldStatus;
+
+            if (now < ev.StartTime)
+            {
+                // Sắp diễn ra (đã được duyệt)
+                newStatus = APPROVED_STATUS_ID;
+            }
+            else if (ev.StartTime <= now && now <= ev.EndTime)
+            {
+                // Đang diễn ra
+                newStatus = INPROGRESS_STATUS_ID;
+            }
+            else if (now > ev.EndTime)
+            {
+                // Đã kết thúc
+                newStatus = COMPLETED_STATUS_ID;
+            }
+
+            if (newStatus != oldStatus)
+            {
+                ev.StatusId = newStatus;
+                ev.UpdatedAt = DateTime.Now;
+                return true;
+            }
+
+            return false;
+        }
+
+          public async Task<List<EventAttendanceDto>> GetRegisteredEventsAsync(int userId)
+            {
+                var attendances = await _unitOfWork.EventAttendances.GetByUserAsync(userId);
+                return _mapper.Map<List<EventAttendanceDto>>(attendances);
+            }
+
+        public async Task<List<RegisteredEventFullDto>> GetRegisteredEventsFullAsync(int userId)
+        {
+            var attendances = await _unitOfWork.EventAttendances.GetByUserWithEventFullAsync(userId);
+            var result = new List<RegisteredEventFullDto>();
+            foreach (var att in attendances)
+            {
+                var eventDto = _mapper.Map<EventDto>(att.Event); // Event đã có đầy đủ các quan hệ
+                result.Add(new RegisteredEventFullDto
+                {
+                    AttendanceId = att.AttendanceId,
+                    EventId = att.EventId,
+                    CheckinAt = att.CheckinAt,
+                    CheckoutAt = att.CheckoutAt,
+                    Method = att.Method,
+                    Event = eventDto
+                });
+            }
+            return result;
+        }
+
+        private async Task AutoUpdateAndSaveIfNeededAsync(IEnumerable<Event> events)
+        {
+            bool changed = false;
+            foreach (var ev in events)
+            {
+                if (AutoUpdateStatus(ev))
+                    changed = true;
+            }
+
+            if (changed)
+                await _unitOfWork.SaveChangesAsync();
+        }
+
+        private async Task AutoUpdateAndSaveIfNeededAsync(Event ev)
+        {
+            if (AutoUpdateStatus(ev))
+                await _unitOfWork.SaveChangesAsync();
+        }
+
+        #endregion
+
+        #region CRUD main events
+
+        public async Task<PagedResult<EventDto>> GetEventsAsync(
+            int page, int pageSize, EventFilterDto? filter, string sortBy, bool sortDescending)
+        {
+            (page, pageSize) = _filterHelper.NormalizePagination(page, pageSize);
 
             var allEvents = await _unitOfWork.Events.GetAllWithDetailsAsync();
-            var filtered = allEvents.AsEnumerable();
 
-            if (filter != null)
-            {
-                if (filter.StatusId.HasValue) filtered = filtered.Where(e => e.StatusId == filter.StatusId.Value);
-                if (filter.StartDate.HasValue) filtered = filtered.Where(e => e.StartTime >= filter.StartDate.Value);
-                if (filter.EndDate.HasValue) filtered = filtered.Where(e => e.EndTime <= filter.EndDate.Value);
-                if (filter.LocationId.HasValue) filtered = filtered.Where(e => e.LocationId == filter.LocationId.Value);
-                if (filter.ExternalLocationId.HasValue) filtered = filtered.Where(e => e.ExternalLocationId == filter.ExternalLocationId.Value);
-                if (filter.CreatedBy.HasValue) filtered = filtered.Where(e => e.CreatedBy == filter.CreatedBy.Value);
-                if (filter.MinAttendees.HasValue) filtered = filtered.Where(e => e.ExpectedAttendees >= filter.MinAttendees.Value);
-                if (filter.MaxAttendees.HasValue) filtered = filtered.Where(e => e.ExpectedAttendees <= filter.MaxAttendees.Value);
-                if (filter.MinCost.HasValue) filtered = filtered.Where(e => e.EstimatedCost >= filter.MinCost.Value);
-                if (filter.MaxCost.HasValue) filtered = filtered.Where(e => e.EstimatedCost <= filter.MaxCost.Value);
-                if (!filter.IncludeDeleted) filtered = filtered.Where(e => e.IsDeleted != true);
-            }
-            else
-            {
-                filtered = filtered.Where(e => e.IsDeleted != true);
-            }
+            // Auto-update trạng thái
+            await AutoUpdateAndSaveIfNeededAsync(allEvents);
 
-            var total = filtered.Count();
+            var filtered = _filterHelper.ApplyFilters(allEvents, filter);
+            var sorted = _filterHelper.ApplySorting(filtered, sortBy, sortDescending);
 
-            filtered = sortBy.ToLower() switch
-            {
-                "name" => sortDescending ? filtered.OrderByDescending(e => e.EventName) : filtered.OrderBy(e => e.EventName),
-                "starttime" => sortDescending ? filtered.OrderByDescending(e => e.StartTime) : filtered.OrderBy(e => e.StartTime),
-                "endtime" => sortDescending ? filtered.OrderByDescending(e => e.EndTime) : filtered.OrderBy(e => e.EndTime),
-                "status" => sortDescending ? filtered.OrderByDescending(e => e.StatusId) : filtered.OrderBy(e => e.StatusId),
-                "attendees" => sortDescending ? filtered.OrderByDescending(e => e.ExpectedAttendees) : filtered.OrderBy(e => e.ExpectedAttendees),
-                "cost" => sortDescending ? filtered.OrderByDescending(e => e.EstimatedCost) : filtered.OrderBy(e => e.EstimatedCost),
-                _ => sortDescending ? filtered.OrderByDescending(e => e.CreatedAt) : filtered.OrderBy(e => e.CreatedAt)
-            };
-
-            var items = filtered.Skip((page - 1) * pageSize).Take(pageSize).ToList();
-            var totalPages = (int)Math.Ceiling((double)total / pageSize);
+            var total = sorted.Count();
+            var items = _filterHelper.ApplyPagination(sorted, page, pageSize).ToList();
 
             return new PagedResult<EventDto>
             {
@@ -75,32 +179,47 @@ namespace BusinessLayer.Services.Implementations
                 TotalRecords = total,
                 Page = page,
                 PageSize = pageSize,
-                TotalPages = totalPages
+                TotalPages = _filterHelper.CalculateTotalPages(total, pageSize)
             };
         }
 
         public async Task<EventDto?> GetEventByIdAsync(int id)
         {
             var ev = await _unitOfWork.Events.GetByIdWithDetailsAsync(id);
-            if (ev == null || ev.IsDeleted == true) return null;
+            if (ev == null || ev.IsDeleted == true)
+                return null;
+
+            await AutoUpdateAndSaveIfNeededAsync(ev);
+
             return _mapper.Map<EventDto>(ev);
         }
 
         public async Task<EventDto> CreateAsync(CreateEventDto dto, int currentUserId)
         {
-            var validation = await ValidateEventAsync(dto);
-            if (!validation.success) throw new InvalidOperationException(validation.message);
+            // ⭐ Main event: không có parent, không cần parentEventId / currentEventId
+            var validation = await _validationHelper.ValidateEventDataAsync(
+                eventName: dto.EventName,
+                startTime: dto.StartTime,
+                endTime: dto.EndTime,
+                locationId: dto.LocationId,
+                externalLocationId: dto.ExternalLocationId,
+                expectedAttendees: dto.ExpectedAttendees
+            );
+
+            if (!validation.IsSuccess)
+                throw new InvalidOperationException(validation.ErrorMessage);
 
             var ev = _mapper.Map<Event>(dto);
             ev.CreatedBy = currentUserId;
-            ev.StatusId = 1;
+            ev.StatusId = DRAFT_STATUS_ID;
             ev.CreatedAt = DateTime.Now;
             ev.IsDeleted = false;
 
             await _unitOfWork.Events.AddAsync(ev);
             await _unitOfWork.SaveChangesAsync();
 
-            return _mapper.Map<EventDto>(await _unitOfWork.Events.GetByIdWithDetailsAsync(ev.EventId));
+            var created = await _unitOfWork.Events.GetByIdWithDetailsAsync(ev.EventId);
+            return _mapper.Map<EventDto>(created);
         }
 
         public async Task<EventDto?> UpdateAsync(int id, UpdateEventDto dto, int currentUserId)
@@ -108,32 +227,37 @@ namespace BusinessLayer.Services.Implementations
             var ev = await _unitOfWork.Events.GetByIdAsync(id);
             if (ev == null) return null;
 
-            var currentUser = await _unitOfWork.Users.GetByIdAsync(currentUserId);
-            if (ev.CreatedBy != currentUserId && currentUser?.Role?.RoleName != "Admin")
-                throw new UnauthorizedAccessException("No permission");
+            var permission = await _permissionHelper.CanModifyEventAsync(ev, currentUserId);
+            permission.ThrowIfDenied();
 
-            if (ev.StatusId != 1)
-                throw new InvalidOperationException("Can only update Draft events");
+            // ⭐ Main event update: truyền currentEventId để tránh tự conflict chính nó
+            var validation = await _validationHelper.ValidateEventDataAsync(
+                eventName: dto.EventName,
+                startTime: dto.StartTime,
+                endTime: dto.EndTime,
+                locationId: dto.LocationId,
+                externalLocationId: dto.ExternalLocationId,
+                expectedAttendees: dto.ExpectedAttendees,
+                parentStartTime: null,
+                parentEndTime: null,
+                parentEventId: null,
+                currentEventId: ev.EventId
+            );
 
-            var validation = await ValidateEventAsync(_mapper.Map<CreateEventDto>(dto));
-            if (!validation.success) throw new InvalidOperationException(validation.message);
+            if (!validation.IsSuccess)
+                throw new InvalidOperationException(validation.ErrorMessage);
 
-            ev.EventName = dto.EventName;
-            ev.Description = dto.Description;
-            ev.BannerUrl = dto.BannerUrl;
-            ev.StartTime = dto.StartTime;
-            ev.EndTime = dto.EndTime;
-            ev.ExpectedAttendees = dto.ExpectedAttendees;
-            ev.EstimatedCost = dto.EstimatedCost;
-            ev.LocationId = dto.LocationId;
-            ev.ExternalLocationId = dto.ExternalLocationId;
-            ev.TemplateId = dto.TemplateId;
+            _mapper.Map(dto, ev);
             ev.UpdatedAt = DateTime.Now;
 
             await _unitOfWork.Events.UpdateAsync(ev);
             await _unitOfWork.SaveChangesAsync();
 
-            return _mapper.Map<EventDto>(await _unitOfWork.Events.GetByIdWithDetailsAsync(ev.EventId));
+            var updated = await _unitOfWork.Events.GetByIdWithDetailsAsync(ev.EventId);
+
+            await AutoUpdateAndSaveIfNeededAsync(updated);
+
+            return _mapper.Map<EventDto>(updated);
         }
 
         public async Task<bool> DeleteAsync(int id, int currentUserId)
@@ -141,12 +265,8 @@ namespace BusinessLayer.Services.Implementations
             var ev = await _unitOfWork.Events.GetByIdAsync(id);
             if (ev == null || ev.IsDeleted == true) return false;
 
-            var currentUser = await _unitOfWork.Users.GetByIdAsync(currentUserId);
-            if (ev.CreatedBy != currentUserId && currentUser?.Role?.RoleName != "Admin")
-                throw new UnauthorizedAccessException("No permission");
-
-            if (ev.StatusId != 1)
-                throw new InvalidOperationException("Can only delete Draft events");
+            var permission = await _permissionHelper.CanDeleteEventAsync(ev, currentUserId);
+            permission.ThrowIfDenied();
 
             ev.IsDeleted = true;
             ev.UpdatedAt = DateTime.Now;
@@ -157,161 +277,124 @@ namespace BusinessLayer.Services.Implementations
             return true;
         }
 
-        private async Task<(bool success, string message)> ValidateEventAsync(CreateEventDto dto)
-        {
-            if (dto.EndTime <= dto.StartTime) return (false, "End time must be after start time");
-            if (dto.StartTime < DateTime.Now.AddHours(-1)) return (false, "Start time cannot be in the past");
-            if (dto.LocationId.HasValue && dto.ExternalLocationId.HasValue) return (false, "Cannot have both locations");
-            if (!dto.LocationId.HasValue && !dto.ExternalLocationId.HasValue) return (false, "Must specify a location");
+        #endregion
 
-            if (dto.LocationId.HasValue)
-            {
-                var location = await _unitOfWork.Locations.GetByIdAsync(dto.LocationId.Value);
-                if (location == null || location.IsActive != true) return (false, "Invalid internal location");
-                if (dto.ExpectedAttendees.HasValue && location.Capacity.HasValue)
-                    if (dto.ExpectedAttendees.Value > location.Capacity.Value)
-                        return (false, $"Attendees ({dto.ExpectedAttendees}) exceeds capacity ({location.Capacity})");
-            }
-
-            if (dto.ExternalLocationId.HasValue)
-            {
-                var extLoc = await _unitOfWork.ExternalLocations.GetByIdAsync(dto.ExternalLocationId.Value);
-                if (extLoc == null) return (false, "Invalid external location");
-            }
-
-            if (dto.ExpectedAttendees.HasValue && dto.ExpectedAttendees.Value < 1) return (false, "Attendees must be >= 1");
-            if (dto.EstimatedCost.HasValue && dto.EstimatedCost.Value < 0) return (false, "Cost cannot be negative");
-
-            return (true, string.Empty);
-        }
-
-        // ==================== SUB-EVENT METHODS ====================
+        #region Sub events
 
         public async Task<List<SubEventDto>> GetSubEventsAsync(int parentEventId)
         {
-            var parentEvent = await _unitOfWork.Events.GetByIdAsync(parentEventId);
-            if (parentEvent == null)
+            var parent = await _unitOfWork.Events.GetByIdAsync(parentEventId);
+            if (parent == null)
                 throw new InvalidOperationException("Parent event not found");
 
             var subEvents = await _unitOfWork.Events.GetSubEventsByParentIdAsync(parentEventId);
-            var result = _mapper.Map<List<SubEventDto>>(subEvents);
 
-            foreach (var dto in result)
-            {
-                dto.ParentEventName = parentEvent.EventName;
-            }
+            await AutoUpdateAndSaveIfNeededAsync(subEvents);
 
-            return result;
+            return _mapper.Map<List<SubEventDto>>(subEvents);
         }
 
-        public async Task<SubEventDto> CreateSubEventAsync(int parentEventId, CreateSubEventDto dto, int currentUserId)
+        public async Task<SubEventDto> CreateSubEventAsync(
+            int parentEventId, CreateSubEventDto dto, int currentUserId)
         {
-            // 1. Validate parent event exists
-            var parentEvent = await _unitOfWork.Events.GetByIdAsync(parentEventId);
-            if (parentEvent == null)
+            var parent = await _unitOfWork.Events.GetByIdWithDetailsAsync(parentEventId);
+            if (parent == null)
                 throw new InvalidOperationException("Parent event not found");
 
-            // 2. Check permissions
-            if (parentEvent.CreatedBy != currentUserId)
-            {
-                var currentUser = await _unitOfWork.Users.GetByIdAsync(currentUserId);
-                if (currentUser?.Role?.RoleName != "Admin")
-                    throw new UnauthorizedAccessException("Only event creator or Admin can add sub-events");
-            }
+            if (parent.ParentEventId != null)
+                throw new InvalidOperationException("Cannot create sub-event under another sub-event");
 
-            // 3. Only Draft events can have sub-events added
-            if (parentEvent.StatusId != 1)
-                throw new InvalidOperationException("Can only add sub-events to Draft events");
+            // ⭐ Sub-event tạo mới:
+            //  - Phải nằm trong khung giờ parent (parent.StartTime / EndTime)
+            //  - Check trùng phòng nhưng BỎ QUA chính parentEvent (parentEventId = parentEventId)
+            var validation = await _validationHelper.ValidateEventDataAsync(
+                eventName: dto.EventName,
+                startTime: dto.StartTime,
+                endTime: dto.EndTime,
+                locationId: dto.LocationId,
+                externalLocationId: dto.ExternalLocationId,
+                expectedAttendees: null,
+                parentStartTime: parent.StartTime,
+                parentEndTime: parent.EndTime,
+                parentEventId: parentEventId,
+                currentEventId: null
+            );
 
-            // 4. Validate sub-event data
-            var validation = await ValidateSubEventAsync(dto, parentEvent);
-            if (!validation.success)
-                throw new InvalidOperationException(validation.message);
+            if (!validation.IsSuccess)
+                throw new InvalidOperationException(validation.ErrorMessage);
 
-            // 5. Create sub-event using AutoMapper
             var subEvent = _mapper.Map<Event>(dto);
             subEvent.ParentEventId = parentEventId;
             subEvent.CreatedBy = currentUserId;
-            subEvent.StatusId = 1; // Draft
+            subEvent.StatusId = DRAFT_STATUS_ID;
             subEvent.CreatedAt = DateTime.Now;
             subEvent.IsDeleted = false;
 
             await _unitOfWork.Events.AddAsync(subEvent);
             await _unitOfWork.SaveChangesAsync();
 
-            // 6. Return with details using AutoMapper
             var result = await _unitOfWork.Events.GetByIdWithDetailsAsync(subEvent.EventId);
-            var subEventDto = _mapper.Map<SubEventDto>(result);
-            subEventDto.ParentEventName = parentEvent.EventName;
 
-            return subEventDto;
+            await AutoUpdateAndSaveIfNeededAsync(result);
+
+            return _mapper.Map<SubEventDto>(result);
         }
 
-        public async Task<SubEventDto?> UpdateSubEventAsync(int subEventId, UpdateSubEventDto dto, int currentUserId)
+        public async Task<SubEventDto?> UpdateSubEventAsync(
+            int subEventId, UpdateSubEventDto dto, int currentUserId)
         {
-            // 1. Get sub-event
-            var subEvent = await _unitOfWork.Events.GetByIdAsync(subEventId);
-            if (subEvent == null || subEvent.ParentEventId == null)
-                return null;
+            var subEvent = await _unitOfWork.Events.GetByIdWithDetailsAsync(subEventId);
+            if (subEvent == null || subEvent.ParentEventId == null) return null;
 
-            // 2. Check permissions
-            if (subEvent.CreatedBy != currentUserId)
-            {
-                var currentUser = await _unitOfWork.Users.GetByIdAsync(currentUserId);
-                if (currentUser?.Role?.RoleName != "Admin")
-                    throw new UnauthorizedAccessException("Only event creator or Admin can update sub-events");
-            }
-
-            // 3. Only Draft can be updated
-            if (subEvent.StatusId != 1)
-                throw new InvalidOperationException("Can only update Draft sub-events");
-
-            // 4. Get parent event for validation
-            var parentEvent = await _unitOfWork.Events.GetByIdAsync(subEvent.ParentEventId.Value);
-            if (parentEvent == null)
+            var parent = await _unitOfWork.Events.GetByIdAsync(subEvent.ParentEventId.Value);
+            if (parent == null)
                 throw new InvalidOperationException("Parent event not found");
 
-            // 5. Validate
-            var createDto = _mapper.Map<CreateSubEventDto>(dto);
-            var validation = await ValidateSubEventAsync(createDto, parentEvent);
-            if (!validation.success)
-                throw new InvalidOperationException(validation.message);
+            var permission = await _permissionHelper.CanModifyEventAsync(subEvent, currentUserId);
+            permission.ThrowIfDenied();
 
-            // 6. Update using AutoMapper
+            // ⭐ Sub-event update:
+            //  - Phải nằm trong khung giờ parent
+            //  - Bỏ qua parentEvent khi check phòng
+            //  - Bỏ qua chính subEvent khi update
+            var validation = await _validationHelper.ValidateEventDataAsync(
+                eventName: dto.EventName,
+                startTime: dto.StartTime,
+                endTime: dto.EndTime,
+                locationId: dto.LocationId,
+                externalLocationId: dto.ExternalLocationId,
+                expectedAttendees: null,
+                parentStartTime: parent.StartTime,
+                parentEndTime: parent.EndTime,
+                parentEventId: subEvent.ParentEventId,
+                currentEventId: subEvent.EventId
+            );
+
+            if (!validation.IsSuccess)
+                throw new InvalidOperationException(validation.ErrorMessage);
+
             _mapper.Map(dto, subEvent);
             subEvent.UpdatedAt = DateTime.Now;
 
             await _unitOfWork.Events.UpdateAsync(subEvent);
             await _unitOfWork.SaveChangesAsync();
 
-            // 7. Return with details using AutoMapper
-            var result = await _unitOfWork.Events.GetByIdWithDetailsAsync(subEventId);
-            var subEventDto = _mapper.Map<SubEventDto>(result);
-            subEventDto.ParentEventName = parentEvent.EventName;
+            var result = await _unitOfWork.Events.GetByIdWithDetailsAsync(subEvent.EventId);
 
-            return subEventDto;
+            await AutoUpdateAndSaveIfNeededAsync(result);
+
+            return _mapper.Map<SubEventDto>(result);
         }
 
         public async Task<bool> DeleteSubEventAsync(int subEventId, int currentUserId)
         {
-            // 1. Get sub-event
             var subEvent = await _unitOfWork.Events.GetByIdAsync(subEventId);
-            if (subEvent == null || subEvent.ParentEventId == null || subEvent.IsDeleted == true)
+            if (subEvent == null || subEvent.IsDeleted == true || subEvent.ParentEventId == null)
                 return false;
 
-            // 2. Check permissions
-            if (subEvent.CreatedBy != currentUserId)
-            {
-                var currentUser = await _unitOfWork.Users.GetByIdAsync(currentUserId);
-                if (currentUser?.Role?.RoleName != "Admin")
-                    throw new UnauthorizedAccessException("Only event creator or Admin can delete sub-events");
-            }
+            var permission = await _permissionHelper.CanDeleteEventAsync(subEvent, currentUserId);
+            permission.ThrowIfDenied();
 
-            // 3. Only Draft can be deleted
-            if (subEvent.StatusId != 1)
-                throw new InvalidOperationException("Can only delete Draft sub-events");
-
-            // 4. Soft delete
             subEvent.IsDeleted = true;
             subEvent.UpdatedAt = DateTime.Now;
 
@@ -321,49 +404,495 @@ namespace BusinessLayer.Services.Implementations
             return true;
         }
 
-        /// <summary>
-        /// Validate sub-event data
-        /// </summary>
-        private async Task<(bool success, string message)> ValidateSubEventAsync(CreateSubEventDto dto, Event parentEvent)
+        #endregion
+
+        #region Public events
+
+        public async Task<List<PublicEventDto>> GetPublicEventsAsync()
         {
-            // 1. Time validation
-            if (dto.EndTime <= dto.StartTime)
-                return (false, "End time must be after start time");
+            var allEvents = await _unitOfWork.Events.GetAllWithDetailsAsync();
 
-            if (dto.StartTime < DateTime.Now.AddHours(-1))
-                return (false, "Start time cannot be in the past");
+            await AutoUpdateAndSaveIfNeededAsync(allEvents);
 
-            // 2. Sub-event must be within parent event time range
-            if (dto.StartTime < parentEvent.StartTime)
-                return (false, $"Sub-event start time cannot be before parent event start time ({parentEvent.StartTime:dd/MM/yyyy HH:mm})");
+            var publicEvents = _filterHelper.FilterPublicEvents(allEvents);
+            var sorted = _filterHelper.SortByStartTime(publicEvents);
 
-            if (dto.EndTime > parentEvent.EndTime)
-                return (false, $"Sub-event end time cannot be after parent event end time ({parentEvent.EndTime:dd/MM/yyyy HH:mm})");
+            return _mapper.Map<List<PublicEventDto>>(sorted.ToList());
+        }
 
-            // 3. Location validation (same as main event)
-            if (dto.LocationId.HasValue && dto.ExternalLocationId.HasValue)
-                return (false, "Cannot have both internal and external location");
+        public async Task<PublicEventDto?> GetPublicEventByIdAsync(int id)
+        {
+            var ev = await _unitOfWork.Events.GetByIdWithDetailsAsync(id);
+            if (ev == null)
+                return null;
 
-            if (!dto.LocationId.HasValue && !dto.ExternalLocationId.HasValue)
-                return (false, "Must specify either internal or external location");
+            await AutoUpdateAndSaveIfNeededAsync(ev);
 
-            // 4. Verify internal location
-            if (dto.LocationId.HasValue)
+            if (!IsPublicEvent(ev))
+                return null;
+
+            return _mapper.Map<PublicEventDto>(ev);
+        }
+
+        public async Task<PublicEventDto?> GetPublicEventWithSubEventsAsync(int id)
+        {
+            var ev = await _unitOfWork.Events.GetByIdWithSubEventsAsync(id);
+            if (ev == null)
+                return null;
+
+            await AutoUpdateAndSaveIfNeededAsync(ev);
+
+            if (!IsPublicEvent(ev))
+                return null;
+
+            var result = _mapper.Map<PublicEventDto>(ev);
+
+            if (ev.InverseParentEvent != null)
             {
-                var location = await _unitOfWork.Locations.GetByIdAsync(dto.LocationId.Value);
-                if (location == null || location.IsActive != true)
-                    return (false, "Invalid internal location");
+                var approvedSubEvents = ev.InverseParentEvent
+                    .Where(se => se.IsDeleted != true && se.StatusId == APPROVED_STATUS_ID)
+                    .OrderBy(se => se.StartTime);
+
+                result.SubEvents = _mapper.Map<List<PublicSubEventDto>>(approvedSubEvents.ToList());
             }
 
-            // 5. Verify external location
-            if (dto.ExternalLocationId.HasValue)
+            return result;
+        }
+
+        private bool IsPublicEvent(Event? ev)
+        {
+            if (ev == null ||
+                ev.ParentEventId != null ||
+                ev.IsDeleted == true ||
+                ev.StatusId != APPROVED_STATUS_ID)
+                return false;
+
+            return ev.EndTime >= DateTime.Now;
+        }
+        #endregion
+
+        #region Statistics (EM dashboard)
+
+        public async Task<EventStatistics> GetMyEventStatisticsAsync(int currentUserId)
+        {
+            var allEvents = await _unitOfWork.Events.GetAllWithDetailsAsync();
+
+            await AutoUpdateAndSaveIfNeededAsync(allEvents);
+
+            var myEvents = allEvents
+                .Where(e => e.CreatedBy == currentUserId &&
+                            e.IsDeleted != true &&
+                            e.ParentEventId == null);
+
+            var stats = _filterHelper.GetStatistics(myEvents);
+            return stats;
+        }
+
+        #endregion
+
+        #region Approval workflow
+
+        public async Task<EventDto?> SubmitForApprovalAsync(int eventId, int currentUserId)
+        {
+            var ev = await _unitOfWork.Events.GetByIdAsync(eventId);
+            if (ev == null || ev.IsDeleted == true) return null;
+
+            var permission = await _permissionHelper.CanSubmitForApprovalAsync(ev, currentUserId);
+            permission.ThrowIfDenied();
+
+            var statusCheck = _permissionHelper.ValidateStatusTransition(ev.StatusId, PENDING_STATUS_ID);
+            statusCheck.ThrowIfDenied();
+
+            ev.StatusId = PENDING_STATUS_ID;
+            ev.UpdatedAt = DateTime.Now;
+
+            await _unitOfWork.Events.UpdateAsync(ev);
+            await _unitOfWork.SaveChangesAsync();
+
+            var updated = await _unitOfWork.Events.GetByIdWithDetailsAsync(ev.EventId);
+            return _mapper.Map<EventDto>(updated);
+        }
+
+        
+        public async Task<List<EventInvitationDto>> SendInvitationsAsync(
+            int eventId, int senderUserId, SendEventInvitationsDto dto)
+        {
+            var ev = await _unitOfWork.Events.GetByIdAsync(eventId);
+            if (ev == null || ev.IsDeleted == true)
+                throw new InvalidOperationException("Event not found");
+
+            if (ev.StatusId != APPROVED_STATUS_ID)
+                throw new InvalidOperationException("Event must be approved before sending invitations.");
+
+            var sender = await _unitOfWork.Users.GetByIdAsync(senderUserId);
+            if (sender == null)
+                throw new InvalidOperationException("Sender not found");
+
+            var allUsers = await _unitOfWork.Users.GetAllAsync();
+            var resultInvitations = new List<EventInvitationDto>();
+
+            // CLASS INVITATIONS
+            if (dto.ClassCodes != null && dto.ClassCodes.Count > 0)
             {
-                var extLocation = await _unitOfWork.ExternalLocations.GetByIdAsync(dto.ExternalLocationId.Value);
-                if (extLocation == null)
-                    return (false, "Invalid external location");
+                foreach (var classCode in dto.ClassCodes
+                             .Where(x => !string.IsNullOrWhiteSpace(x))
+                             .Select(x => x.Trim())
+                             .Distinct())
+                {
+                    var invitation = new EventInvitation
+                    {
+                        EventId = eventId,
+                        ClassCode = classCode,
+                        SentBy = senderUserId,
+                        SentAt = DateTime.Now
+                    };
+
+                    await _unitOfWork.EventInvitations.AddAsync(invitation);
+
+                    var students = allUsers.Where(u => u.ClassCode == classCode).ToList();
+
+                    foreach (var user in students)
+                    {
+                        var subject = dto.IsMandatory
+                            ? $"[BẮT BUỘC] Tham gia sự kiện: {ev.EventName}"
+                            : $"Mời tham gia sự kiện: {ev.EventName}";
+
+                        var body =
+                            $"Chào {user.FullName},\n\n" +
+                            $"Bạn được {(dto.IsMandatory ? "YÊU CẦU" : "mời")} tham gia sự kiện:\n" +
+                            $"- {ev.EventName}\n" +
+                            $"- {ev.StartTime:g} - {ev.EndTime:g}\n\n" +
+                            $"Chi tiết: https://yourdomain.com/events/{ev.EventId}\n\n";
+
+                        await _emailService.SendEmailAsync(user.Email, subject, body, user.FullName);
+                    }
+
+                    var dtoMapped = _mapper.Map<EventInvitationDto>(invitation);
+                    dtoMapped.IsMandatory = dto.IsMandatory;
+                    resultInvitations.Add(dtoMapped);
+                }
             }
 
-            return (true, string.Empty);
+            // INTERNAL USER INVITES
+            if (dto.InternalUserIds != null && dto.InternalUserIds.Count > 0)
+            {
+                var targetUsers = allUsers
+                    .Where(u => dto.InternalUserIds.Contains(u.UserId))
+                    .ToList();
+
+                foreach (var user in targetUsers)
+                {
+                    var subject = dto.IsMandatory
+                        ? $"[BẮT BUỘC] Tham gia sự kiện: {ev.EventName}"
+                        : $"Mời tham gia sự kiện: {ev.EventName}";
+
+                    await _emailService.SendEmailAsync(
+                        user.Email,
+                        subject,
+                        $"Bạn được mời tham gia {ev.EventName}",
+                        user.FullName);
+                }
+            }
+
+            // EXTERNAL EMAIL INVITES
+            if (dto.ExternalInvites != null && dto.ExternalInvites.Count > 0)
+            {
+                foreach (var ext in dto.ExternalInvites)
+                {
+                    var subject = dto.IsMandatory
+                        ? $"[BẮT BUỘC] Tham gia sự kiện: {ev.EventName}"
+                        : $"Mời tham gia sự kiện: {ev.EventName}";
+
+                    await _emailService.SendEmailAsync(
+                        ext.Email,
+                        subject,
+                        $"Chào {ext.FullName ?? "Quý khách"},\nBạn được mời tham gia {ev.EventName}");
+                }
+            }
+
+            await _unitOfWork.SaveChangesAsync();
+            return resultInvitations;
+        }
+        #endregion
+
+        #region Director aprove/reject
+
+        // Get pending approval
+        public async Task<List<PendingApprovalDto>> GetPendingApprovalsAsync()
+        {
+            var allEvents = await _unitOfWork.Events.GetAllWithDetailsAsync();
+            var pendingEvents = allEvents
+                .Where(e => e.StatusId == PENDING_STATUS_ID && e.IsDeleted != true)
+                .OrderBy(e => e.CreatedAt)
+                .ToList();
+
+            var result = new List<PendingApprovalDto>();
+
+            foreach (var evt in pendingEvents)
+            {
+                var subEventsCount = allEvents.Count(e => e.ParentEventId == evt.EventId);
+
+                var logs = await _unitOfWork.EventLogs.GetLogsByEventIdAsync(evt.EventId);
+                var submissionLog = logs
+                    .Where(l => l.Action == "SubmittedForApproval")
+                    .OrderByDescending(l => l.CreatedAt)
+                    .FirstOrDefault();
+
+                result.Add(new PendingApprovalDto
+                {
+                    EventId = evt.EventId,
+                    EventName = evt.EventName,
+                    StartTime = evt.StartTime,
+                    EndTime = evt.EndTime,
+                    Budget = evt.EstimatedCost,
+                    ExpectedAttendees = evt.ExpectedAttendees,
+                    CreatedByName = evt.CreatedByNavigation?.FullName ?? "Unknown",
+                    SubmittedDate = evt.UpdatedAt ?? evt.CreatedAt ?? DateTime.Now,
+                    SubEventsCount = subEventsCount,
+                    SubmitterNote = submissionLog?.Details
+                });
+            }
+
+            return result;
+        }
+
+
+        public async Task<EventDto> ApproveEventAsync(int eventId, EventDecisionDto dto, int directorId)
+        {
+            var evt = await _unitOfWork.Events.GetByIdWithDetailsAsync(eventId);
+            if (evt == null || evt.IsDeleted == true)
+                throw new InvalidOperationException("Event not found");
+
+            var permission = await _permissionHelper.CanApproveEventAsync(evt, directorId);
+            permission.ThrowIfDenied();
+
+            if (evt.StatusId != PENDING_STATUS_ID)
+                throw new InvalidOperationException("Only pending events can be approved");
+
+            var statusCheck = _permissionHelper.ValidateStatusTransition(evt.StatusId, APPROVED_STATUS_ID);
+            statusCheck.ThrowIfDenied();
+
+            evt.StatusId = APPROVED_STATUS_ID;
+            evt.UpdatedAt = DateTime.Now;
+            await _unitOfWork.Events.UpdateAsync(evt);
+
+            var approval = new EventApproval
+            {
+                EventId = eventId,
+                DirectorId = directorId,
+                ApprovalStatus = "Approved",
+                Comment = dto?.Comment,
+                CreatedAt = DateTime.Now
+            };
+            await _unitOfWork.EventApprovals.AddAsync(approval);
+
+            await LogEventActionAsync(eventId, directorId, "Approved", dto?.Comment);
+
+            var tasks = await _eventTaskRepository.Query()
+                .Where(t => t.EventId == eventId)
+                .ToListAsync();
+
+            foreach (var task in tasks)
+            {
+                var st = (task.Status ?? "").Trim();
+
+                if (st.Equals("PendingApproval", StringComparison.OrdinalIgnoreCase) ||
+                    st.Equals("Draft", StringComparison.OrdinalIgnoreCase) ||
+                    st.Equals("Planned", StringComparison.OrdinalIgnoreCase) ||
+                    string.IsNullOrWhiteSpace(st))
+                {
+                    task.Status = "Todo";
+                    await _eventTaskRepository.UpdateAsync(task);
+
+                    var staff = await _unitOfWork.Users.GetByIdAsync(task.AssignedTo);
+                    if (staff != null && !string.IsNullOrWhiteSpace(staff.Email))
+                    {
+                        var subject = $"New Task Assigned: {evt.EventName}";
+                        var body =
+                            $"Hello {staff.FullName},\n\n" +
+                            $"The event \"{evt.EventName}\" has been approved. Your task is now active.\n\n" +
+                            $"Task: {task.Title}\n" +
+                            $"Status: {task.Status}\n\n" +
+                            $"Please log in to view details and update progress.\n\n" +
+                            $"FPTU Event System";
+
+                        await _emailService.SendEmailAsync(staff.Email, subject, body, staff.FullName);
+                    }
+                }
+            }
+
+            await _unitOfWork.SaveChangesAsync();
+
+            var updated = await _unitOfWork.Events.GetByIdWithDetailsAsync(eventId);
+            return _mapper.Map<EventDto>(updated);
+        }
+
+        public async Task<EventDto> RejectEventAsync(int eventId, EventDecisionDto dto, int directorId)
+        {
+            var evt = await _unitOfWork.Events.GetByIdWithDetailsAsync(eventId);
+            if (evt == null || evt.IsDeleted == true)
+                throw new InvalidOperationException("Event not found");
+
+            var permission = await _permissionHelper.CanApproveEventAsync(evt, directorId);
+            permission.ThrowIfDenied();
+
+            if (evt.StatusId != PENDING_STATUS_ID)
+                throw new InvalidOperationException("Only pending events can be rejected");
+
+            var statusCheck = _permissionHelper.ValidateStatusTransition(evt.StatusId, REJECTED_STATUS_ID);
+            statusCheck.ThrowIfDenied();
+
+            evt.StatusId = REJECTED_STATUS_ID;
+            evt.UpdatedAt = DateTime.Now;
+            await _unitOfWork.Events.UpdateAsync(evt);
+
+            var approval = new EventApproval
+            {
+                EventId = eventId,
+                DirectorId = directorId,
+                ApprovalStatus = "Rejected",
+                Comment = dto?.Comment,
+                CreatedAt = DateTime.Now
+            };
+            await _unitOfWork.EventApprovals.AddAsync(approval);
+
+            await LogEventActionAsync(eventId, directorId, "Rejected", dto?.Comment);
+
+            var tasks = await _eventTaskRepository.Query()
+                .Where(t => t.EventId == eventId)
+                .ToListAsync();
+
+            foreach (var task in tasks)
+            {
+                var st = (task.Status ?? "").Trim();
+                if (st.Equals("PendingApproval", StringComparison.OrdinalIgnoreCase))
+                {
+                    task.Status = "Draft";
+                    await _eventTaskRepository.UpdateAsync(task);
+                }
+            }
+
+            var creator = await _unitOfWork.Users.GetByIdAsync(evt.CreatedBy);
+            if (creator != null && !string.IsNullOrWhiteSpace(creator.Email))
+            {
+                var subject = $"Event Rejected: {evt.EventName}";
+                var body =
+                    $"Hello {creator.FullName},\n\n" +
+                    $"Your event \"{evt.EventName}\" has been rejected.\n\n" +
+                    $"Reason: {dto?.Comment}\n\n" +
+                    $"Please revise and submit again.\n\n" +
+                    $"FPTU Event System";
+
+                await _emailService.SendEmailAsync(creator.Email, subject, body, creator.FullName);
+            }
+
+            await _unitOfWork.SaveChangesAsync();
+
+            var updated = await _unitOfWork.Events.GetByIdWithDetailsAsync(eventId);
+            return _mapper.Map<EventDto>(updated);
+        }
+
+
+        // Get approval history for a specific event
+        public async Task<List<EventApprovalDto>> GetApprovalHistoryAsync(int eventId)
+        {
+            var approvals = await _unitOfWork.EventApprovals.GetApprovalsByEventIdAsync(eventId);
+            var result = new List<EventApprovalDto>();
+
+            foreach (var approval in approvals)
+            {
+                var evt = await _unitOfWork.Events.GetByIdAsync(approval.EventId);
+                var director = await _unitOfWork.Users.GetByIdAsync(approval.DirectorId);
+
+                var dto = _mapper.Map<EventApprovalDto>(approval);
+                dto.EventName = evt?.EventName ?? "Unknown Event";
+                dto.DirectorName = director?.FullName ?? "Unknown Director";
+
+                result.Add(dto);
+            }
+
+            return result;
+        }
+
+        // Log event
+        private async Task LogEventActionAsync(int eventId, int userId, string action, string? details)
+        {
+            var log = new EventLog
+            {
+                EventId = eventId,
+                UserId = userId,
+                Action = action,
+                Details = details,
+                CreatedAt = DateTime.Now
+            };
+            await _unitOfWork.EventLogs.AddAsync(log);
+        }
+        #endregion
+        // Đăng ký sự kiện cho user
+        public async Task<EventAttendanceDto> RegisterEventAsync(int eventId, int userId)
+        {
+            var eventObj = await _unitOfWork.Events.GetByIdAsync(eventId);
+            if (eventObj == null || eventObj.IsDeleted == true)
+                throw new InvalidOperationException("Event not found or deleted");
+
+            var userObj = await _unitOfWork.Users.GetByIdAsync(userId);
+            if (userObj == null)
+                throw new InvalidOperationException("User not found");
+        
+            // Kiểm tra đã đăng ký chưa (trực tiếp trên DB)
+            var existed = await _unitOfWork.EventAttendances.ExistsAsync(x => x.EventId == eventId && x.UserId == userId);
+            if (existed)
+                throw new InvalidOperationException("User already registered for this event");
+
+            var attendance = new EventAttendance
+            {
+                EventId = eventId,
+                UserId = userId,
+                CheckinAt = null,
+                CheckoutAt = null,
+                Method = "manual"
+            };
+            await _unitOfWork.EventAttendances.AddAsync(attendance);
+            await _unitOfWork.SaveChangesAsync();
+
+            return _mapper.Map<EventAttendanceDto>(attendance);
+        }
+
+        public async Task<EventAttendanceDto> CheckinEventAsync(int eventId, int userId)
+        {
+            var attendance = await _unitOfWork.EventAttendances.FindAsync(x => x.EventId == eventId && x.UserId == userId);
+            if (attendance == null)
+                throw new InvalidOperationException("User chưa đăng ký sự kiện này");
+            if (attendance.CheckinAt != null)
+                throw new InvalidOperationException("User đã checkin sự kiện này");
+            attendance.CheckinAt = DateTime.Now;
+            await _unitOfWork.SaveChangesAsync();
+            return _mapper.Map<EventAttendanceDto>(attendance);
+        }
+
+        public async Task<EventAttendanceDto> CheckoutEventAsync(int eventId, int userId)
+        {
+            var attendance = await _unitOfWork.EventAttendances.FindAsync(x => x.EventId == eventId && x.UserId == userId);
+            if (attendance == null)
+                throw new InvalidOperationException("User chưa đăng ký sự kiện này");
+            if (attendance.CheckinAt == null)
+                throw new InvalidOperationException("User chưa checkin, không thể checkout");
+            if (attendance.CheckoutAt != null)
+                throw new InvalidOperationException("User đã checkout sự kiện này");
+            attendance.CheckoutAt = DateTime.Now;
+            await _unitOfWork.SaveChangesAsync();
+            return _mapper.Map<EventAttendanceDto>(attendance);
+        }
+
+        public async Task UnregisterEventAsync(int eventId, int userId)
+        {
+            var attendance = await _unitOfWork.EventAttendances.FindAsync(x => x.EventId == eventId && x.UserId == userId);
+            if (attendance == null)
+                throw new InvalidOperationException("Bạn chưa đăng ký sự kiện này");
+            if (attendance.CheckinAt != null)
+                throw new InvalidOperationException("Bạn đã checkin, không thể hủy đăng ký");
+            await _unitOfWork.EventAttendances.DeleteAsync(attendance);
+            await _unitOfWork.SaveChangesAsync();
         }
     }
 }

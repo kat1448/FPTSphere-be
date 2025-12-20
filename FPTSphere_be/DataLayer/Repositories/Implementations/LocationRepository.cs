@@ -49,47 +49,51 @@ namespace DataLayer.Repositories.Implementations
             return await query.AnyAsync();
         }
         public async Task<List<Location>> GetAvailableLocationsAsync(
-    DateTime startTime,
-    DateTime endTime,
-    int? minCapacity = null,
-    string? building = null)
+      DateTime startTime,
+      DateTime endTime,
+      int? minCapacity = null,
+      string? building = null)
         {
-            // Step 1: Get base query with filters
+            // 1️⃣ Các trạng thái CHIẾM PHÒNG
+            var blockingStatuses = new[] { 2, 3, 4 };
+            // PendingApproval, Approved, InProgress
+
+            // 2️⃣ Query cơ bản
             var query = _dbSet
-                .Include(l => l.Events.Where(e => e.IsDeleted != true))
+                .Include(l => l.Events.Where(e =>
+                    e.IsDeleted != true &&
+                    blockingStatuses.Contains(e.StatusId)
+                ))
                 .Where(l => l.IsActive == true);
 
-            // Step 2: Filter by capacity
+            // 3️⃣ Lọc sức chứa
             if (minCapacity.HasValue)
             {
                 query = query.Where(l => l.Capacity >= minCapacity.Value);
             }
 
-            // Step 3: Filter by building
+            // 4️⃣ Lọc theo building
             if (!string.IsNullOrWhiteSpace(building))
             {
                 query = query.Where(l => l.Building == building);
             }
 
-            // Step 4: Get all matching locations with their events
             var locations = await query.ToListAsync();
 
-            // Step 5: Filter out locations with conflicting events (in memory)
-            var availableLocations = locations.Where(location =>
-            {
-                // Check if ANY event conflicts with the requested time
-                bool hasConflict = location.Events.Any(evt =>
-                {
-                    // Conflict formula: (startA < endB) AND (endA > startB)
-                    bool conflicts = evt.StartTime < endTime && evt.EndTime > startTime;
-                    return conflicts;
-                });
-
-                // Return location only if NO conflict
-                return !hasConflict;
-            }).ToList();
+            // 5️⃣ Loại các phòng bị trùng thời gian
+            var availableLocations = locations
+                .Where(location =>
+                    !location.Events.Any(evt =>
+                        evt.StartTime < endTime &&
+                        evt.EndTime > startTime
+                    )
+                )
+                .ToList();
 
             return availableLocations;
         }
+
+
+
     }
 }

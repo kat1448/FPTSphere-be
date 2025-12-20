@@ -1,18 +1,22 @@
-﻿using BusinessLayer.DTOs.Event;
 using BusinessLayer.DTOs;
+using BusinessLayer.DTOs.Event;
+using BusinessLayer.DTOs.EventApproval;
 using BusinessLayer.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
-using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
+using BusinessLayer.Helpers;
 
 namespace WebApi.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [Authorize]
+    [AllowAnonymous]
     public class EventsController : ControllerBase
+
     {
         private readonly IEventService _eventService;
+        private readonly IEmailService _emailService;
 
         public EventsController(IEventService eventService) => _eventService = eventService;
 
@@ -295,5 +299,425 @@ namespace WebApi.Controllers
                 return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
             }
         }
+        [HttpGet("my")]
+        [Authorize(Roles = "Admin,Event Manager")]
+        public async Task<IActionResult> GetMyEvents(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10,
+        [FromQuery] int? statusId = null,
+        [FromQuery] DateTime? startDate = null,
+        [FromQuery] DateTime? endDate = null,
+        [FromQuery] int? locationId = null,
+        [FromQuery] int? externalLocationId = null,
+        [FromQuery] int? minAttendees = null,
+        [FromQuery] int? maxAttendees = null,
+        [FromQuery] decimal? minCost = null,
+        [FromQuery] decimal? maxCost = null,
+        [FromQuery] bool includeDeleted = false,
+        [FromQuery] string sortBy = "CreatedAt",
+        [FromQuery] bool sortDescending = true)
+        {
+            try
+            {
+                // 1. Lấy user id từ token
+                var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrEmpty(userIdString))
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot detect current user"));
+                }
+
+                var currentUserId = int.Parse(userIdString);
+
+                // 2. Tạo filter, ÉP theo EM hiện tại + chỉ main event
+                var filter = new EventFilterDto
+                {
+                    StatusId = statusId,
+                    StartDate = startDate,
+                    EndDate = endDate,
+                    LocationId = locationId,
+                    ExternalLocationId = externalLocationId,
+                    CreatedBy = currentUserId,   // chỉ event do user này tạo
+                    MinAttendees = minAttendees,
+                    MaxAttendees = maxAttendees,
+                    MinCost = minCost,
+                    MaxCost = maxCost,
+                    IncludeDeleted = includeDeleted,
+
+                    // ⭐ QUAN TRỌNG: chỉ lấy main event, loại sub-event
+                    OnlyMainEvents = true
+                };
+
+                // 3. Gọi service như bình thường
+                var result = await _eventService.GetEventsAsync(page, pageSize, filter, sortBy, sortDescending);
+
+                return Ok(ApiResponse<PagedResult<EventDto>>.SuccessResult(
+                    result,
+                    $"Retrieved {result.TotalRecords} events for current Event Manager"));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+        // ==================== OVERVIEW CHO EM HIỆN TẠI ====================
+        [HttpGet("my/overview")]
+        [Authorize(Roles = "Admin,Event Manager")]
+        public async Task<IActionResult> GetMyOverview()
+        {
+            try
+            {
+                // Lấy UserId từ JWT
+                var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrEmpty(userIdString))
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot detect current user"));
+                }
+
+                var currentUserId = int.Parse(userIdString);
+
+                // Gọi service lấy thống kê
+                var stats = await _eventService.GetMyEventStatisticsAsync(currentUserId);
+
+                return Ok(ApiResponse<EventStatistics>.SuccessResult(
+                    stats,
+                    "Overview statistics retrieved"));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+        // ==================== APPROVAL ENDPOINTS ====================
+
+        [HttpPost("{id}/submit")]
+        [Authorize(Roles = "Admin,Event Manager")]
+        public async Task<IActionResult> SubmitForApproval(int id)
+        {
+            try
+            {
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                var result = await _eventService.SubmitForApprovalAsync(id, userId);
+
+                if (result == null)
+                    return NotFound(ApiResponse<object>.ErrorResult("Event not found"));
+
+                return Ok(ApiResponse<EventDto>.SuccessResult(result, "Event submitted for approval"));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                // Không đủ quyền hoặc sai trạng thái
+                return Forbid(ex.Message);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+        /// <summary>
+        /// Send invitations for an approved event
+        /// </summary>
+        [HttpPost("{id}/invitations")]
+        [Authorize(Roles = "Admin,Event Manager")]
+        public async Task<IActionResult> SendInvitations(int id, [FromBody] SendEventInvitationsDto dto)
+        {
+            try
+            {
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    return BadRequest(ApiResponse<object>.ErrorResult("Invalid data", errors));
+                }
+
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                var result = await _eventService.SendInvitationsAsync(id, userId, dto);
+
+                return Ok(ApiResponse<List<EventInvitationDto>>.SuccessResult(
+                    result,
+                    $"Sent {result.Count} invitation(s) successfully"));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+        [HttpPost("test-email")]
+        [AllowAnonymous] // Chỉ để test, sau đó xóa hoặc đổi thành Authorize
+        public async Task<IActionResult> TestEmail([FromQuery] string toEmail)
+        {
+            try
+            {
+                await _emailService.SendEmailAsync(
+                    toEmail,
+                    "🎉 Test Email từ FPTSphere",
+                    @"<html>
+                <body style='font-family: Arial;'>
+                    <h1 style='color: #F37021;'>Xin chào!</h1>
+                    <p>Đây là email test từ hệ thống <strong>FPTSphere</strong>.</p>
+                    <p>Nếu bạn nhận được email này, nghĩa là cấu hình SMTP đã hoạt động! ✅</p>
+                </body>
+            </html>",
+                    "Test User"
+                );
+
+                return Ok(ApiResponse<object>.SuccessResult(null, $"Email sent to {toEmail}"));
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult($"Failed to send email: {ex.Message}"));
+            }
+        }
+
+        #region Event approve/reject
+        // Get all events pending
+        [HttpGet("pending-approval")]
+        [Authorize(Roles = "Director,Admin")]
+        public async Task<IActionResult> GetPendingApprovals()
+        {
+            try
+            {
+                var result = await _eventService.GetPendingApprovalsAsync();
+                return Ok(ApiResponse<List<PendingApprovalDto>>.SuccessResult(
+                    result,
+                    $"Retrieved {result.Count} events pending approval"));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+
+        // Approve event
+        [HttpPost("{id}/approve")]
+        [Authorize(Roles = "Director,Admin")]
+        public async Task<IActionResult> ApproveEvent(int id, [FromBody] EventDecisionDto dto)
+        {
+            try
+            {
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                var result = await _eventService.ApproveEventAsync(id, dto, userId);
+
+                return Ok(ApiResponse<EventDto>.SuccessResult(result, "Event approved successfully"));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Forbid(ex.Message);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+
+        // Reject event
+        [HttpPost("{id}/reject")]
+        [Authorize(Roles = "Director,Admin")]
+        public async Task<IActionResult> RejectEvent(int id, [FromBody] EventDecisionDto dto)
+        {
+            try
+            {
+                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                var result = await _eventService.RejectEventAsync(id, dto, userId);
+
+                return Ok(ApiResponse<EventDto>.SuccessResult(result, "Event rejected successfully"));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return Forbid(ex.Message);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+
+        // Get approval history
+        [HttpGet("{id}/approval-history")]
+        [Authorize(Roles = "Director,Admin,Event Manager")]
+        public async Task<IActionResult> GetApprovalHistory(int id)
+        {
+            try
+            {
+                var result = await _eventService.GetApprovalHistoryAsync(id);
+                return Ok(ApiResponse<List<EventApprovalDto>>.SuccessResult(
+                    result,
+                    $"Retrieved {result.Count} approval records"));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+        /// <summary>
+        /// Đăng ký tham gia sự kiện cho user hiện tại
+        /// </summary>
+        [HttpPost("{id}/register")]
+        [Authorize] // Chỉ cần đăng nhập
+        public async Task<IActionResult> RegisterEvent(int id)
+        {
+            try
+            {
+                var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrEmpty(userIdString))
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot detect current user"));
+
+                var userId = int.Parse(userIdString);
+                var result = await _eventService.RegisterEventAsync(id, userId);
+                return Ok(ApiResponse<EventAttendanceDto>.SuccessResult(result, "Đăng ký thành công"));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+
+        /// <summary>
+        /// Checkin sự kiện cho user hiện tại
+        /// </summary>
+        [HttpPost("{id}/checkin")]
+        [Authorize]
+        public async Task<IActionResult> CheckinEvent(int id)
+        {
+            try
+            {
+                var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrEmpty(userIdString))
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot detect current user"));
+
+                var userId = int.Parse(userIdString);
+                var result = await _eventService.CheckinEventAsync(id, userId);
+                return Ok(ApiResponse<EventAttendanceDto>.SuccessResult(result, "Checkin thành công"));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+
+        /// <summary>
+        /// Checkout sự kiện cho user hiện tại
+        /// </summary>
+        [HttpPost("{id}/checkout")]
+        [Authorize]
+        public async Task<IActionResult> CheckoutEvent(int id)
+        {
+            try
+            {
+                var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrEmpty(userIdString))
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot detect current user"));
+
+                var userId = int.Parse(userIdString);
+                var result = await _eventService.CheckoutEventAsync(id, userId);
+                return Ok(ApiResponse<EventAttendanceDto>.SuccessResult(result, "Checkout thành công"));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+        // /// <summary>
+        // /// Lấy danh sách sự kiện user đã đăng ký
+        // /// </summary>
+        // [HttpGet("list-registered-events")]
+        // [Authorize]
+        // public async Task<IActionResult> GetRegisteredEvents()
+        // {
+        //     try
+        //     {
+        //         var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        //         if (string.IsNullOrEmpty(userIdString))
+        //             return Unauthorized(ApiResponse<object>.ErrorResult("Cannot detect current user"));
+
+        //         var userId = int.Parse(userIdString);
+        //         var result = await _eventService.GetRegisteredEventsAsync(userId);
+        //         return Ok(ApiResponse<List<EventAttendanceDto>>.SuccessResult(result, "Danh sách sự kiện đã đăng ký"));
+        //     }
+        //     catch (Exception ex)
+        //     {
+        //         return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+        //     }
+        // }
+
+        /// <summary>
+        /// Lấy danh sách sự kiện user đã đăng ký kèm đầy đủ thông tin event và các quan hệ
+        /// </summary>
+        [HttpGet("list-events-myself")]
+        [Authorize]
+        public async Task<IActionResult> GetRegisteredEventsFull()
+        {
+            try
+            {
+                var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrEmpty(userIdString))
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot detect current user"));
+
+                var userId = int.Parse(userIdString);
+                var result = await _eventService.GetRegisteredEventsFullAsync(userId);
+                return Ok(ApiResponse<List<RegisteredEventFullDto>>.SuccessResult(result, "Danh sách sự kiện đã đăng ký (đầy đủ thông tin)"));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+
+        /// <summary>
+        /// Hủy đăng ký sự kiện cho user hiện tại
+        /// </summary>
+        [HttpPost("{id}/unregister")]
+        [Authorize]
+        public async Task<IActionResult> UnregisterEvent(int id)
+        {
+            try
+            {
+                var userIdString = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                if (string.IsNullOrEmpty(userIdString))
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot detect current user"));
+
+                var userId = int.Parse(userIdString);
+                await _eventService.UnregisterEventAsync(id, userId);
+                return Ok(ApiResponse<object>.SuccessResult(null, "Hủy đăng ký thành công"));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+        #endregion
     }
 }
