@@ -14,11 +14,8 @@ namespace DataLayer.Repositories.Implementations
 
         public async Task<List<EventTask>> GetByAssignedToAsync(int userId)
         {
-            return await _dbSet
-                .Where(x => x.AssignedTo.HasValue && x.AssignedTo.Value == userId)
-                .ToListAsync();
+            return await _dbSet.Where(x => x.AssignedTo == userId).ToListAsync();
         }
-
 
         public IQueryable<EventTask> Query()
         {
