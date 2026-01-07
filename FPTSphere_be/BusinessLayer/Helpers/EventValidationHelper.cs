@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Linq;
 using System.Threading.Tasks;
+using DataLayer.Constants;
 using DataLayer.Repositories.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
@@ -220,25 +221,54 @@ namespace BusinessLayer.Helpers
         ///  - ignoreEventId: chính event đang update
         ///  - ignoreParentEventId: parent event khi tạo/đổi sub-event
         /// </summary>
-        public async Task<ValidationResult> ValidateLocationAvailabilityAsync( int locationId,DateTime startTime, DateTime endTime,int? ignoreEventId = null,int? ignoreParentEventId = null)
+        public async Task<ValidationResult> ValidateLocationAvailabilityAsync(
+            int locationId,
+            DateTime startTime,
+            DateTime endTime,
+            int? ignoreEventId = null,
+            int? ignoreParentEventId = null)
         {
-            // Only these statuses will lock/occupy a location
-            var blockingStatusIds = new[] { 2, 3, 4 }; // Pending, Approved, InProgress
+            // ✅ CHỈ Pending/Approved/InProgress mới block phòng
+            var blockingStatusIds = new[]
+            {
+        EventStatusIds.PendingApproval,  // 2
+        EventStatusIds.Approved,          // 3
+        EventStatusIds.InProgress         // 4
+    };
 
-            // ⚠️ Nếu repo base của bạn có Query() thì dùng:
-            var hasConflict = await _unitOfWork.Events.Query()
-                .Where(e => e.IsDeleted != true)
-                .Where(e => e.LocationId == locationId)
-                .Where(e => blockingStatusIds.Contains(e.StatusId))
-                .Where(e => !ignoreEventId.HasValue || e.EventId != ignoreEventId.Value)
-                .Where(e => !ignoreParentEventId.HasValue || e.EventId != ignoreParentEventId.Value)
-                .AnyAsync(e => e.StartTime < endTime && e.EndTime > startTime);
+            var conflictingEvents = await _unitOfWork.Events.FindAllAsync(e =>
+                e.LocationId == locationId &&
+                e.IsDeleted != true &&
+                blockingStatusIds.Contains(e.StatusId) &&  // ✅ CHỈ check 3 status này
+                (!ignoreEventId.HasValue || e.EventId != ignoreEventId.Value) &&
+                (!ignoreParentEventId.HasValue || e.EventId != ignoreParentEventId.Value) &&
+                e.StartTime < endTime && e.EndTime > startTime
+            );
 
-            if (hasConflict)
-                return ValidationResult.Fail("Phòng này đang được giữ chỗ (Pending/Approved/InProgress) trong khung thời gian bạn chọn. Vui lòng chọn phòng khác.");
+            if (conflictingEvents.Any())
+            {
+                var conflict = conflictingEvents.First();
+                var location = await _unitOfWork.Locations.GetByIdAsync(locationId);
+
+                // ✅ Thêm status name vào error message
+                var statusName = conflict.StatusId switch
+                {
+                    EventStatusIds.PendingApproval => "Đang chờ duyệt",
+                    EventStatusIds.Approved => "Đã duyệt",
+                    EventStatusIds.InProgress => "Đang diễn ra",
+                    _ => $"Status {conflict.StatusId}"
+                };
+
+                return ValidationResult.Fail(
+                    $"❌ Phòng '{location?.Name}' đã được đặt bởi sự kiện '{conflict.EventName}' " +
+                    $"({statusName}) trong khoảng {conflict.StartTime:dd/MM/yyyy HH:mm} - {conflict.EndTime:HH:mm}. " +
+                    $"Vui lòng chọn phòng khác hoặc thời gian khác."
+                );
+            }
 
             return ValidationResult.Success();
         }
+
 
 
         /// <summary>
