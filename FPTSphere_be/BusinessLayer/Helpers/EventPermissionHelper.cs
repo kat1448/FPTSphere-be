@@ -17,6 +17,9 @@ namespace BusinessLayer.Helpers
         private const string ADMIN_ROLE = "Admin";
         private const string EVENT_MANAGER_ROLE = "Event Manager";
         private const string DIRECTOR_ROLE = "Director";
+        // Old code: (no STAFF_ROLE constant)
+        // Fixed:
+        private const string STAFF_ROLE = "Staff";
 
         // Status IDs as constants
         private const int DRAFT_STATUS_ID = 1;
@@ -98,8 +101,12 @@ namespace BusinessLayer.Helpers
 
         /// <summary>
         /// Check if user can approve/reject event
-        /// Rules:
+        /// Old code rules:
         /// - Only Director can approve/reject
+        /// - Event must be in Pending status
+        /// Fixed rules:
+        /// - Director can approve any pending event
+        /// - Event Manager can approve events created by Staff
         /// - Event must be in Pending status
         /// </summary>
         public async Task<PermissionResult> CanApproveEventAsync(Event ev, int currentUserId)
@@ -113,12 +120,32 @@ namespace BusinessLayer.Helpers
 
             // Check role
             var currentUser = await _unitOfWork.Users.GetByIdAsync(currentUserId);
-            if (currentUser?.Role?.RoleName != DIRECTOR_ROLE && currentUser?.Role?.RoleName != ADMIN_ROLE)
+            // Old code:
+            // if (currentUser?.Role?.RoleName != DIRECTOR_ROLE && currentUser?.Role?.RoleName != ADMIN_ROLE)
+            // {
+            //     return PermissionResult.Deny("Only Director or Admin can approve events");
+            // }
+            // return PermissionResult.Allow();
+            // Fixed:
+            var currentUserRole = currentUser?.Role?.RoleName ?? "";
+
+            // Director can approve any pending event
+            if (currentUserRole == DIRECTOR_ROLE)
             {
-                return PermissionResult.Deny("Only Director or Admin can approve events");
+                return PermissionResult.Allow();
             }
 
+            // Event Manager can approve events created by Staff
+            if (currentUserRole == EVENT_MANAGER_ROLE)
+            {
+                var creator = await _unitOfWork.Users.GetByIdAsync(ev.CreatedBy);
+                if (creator?.Role?.RoleName == STAFF_ROLE)
+                {
             return PermissionResult.Allow();
+                }
+            }
+
+            return PermissionResult.Deny("You don't have permission to approve this event");
         }
 
         /// <summary>
@@ -205,6 +232,14 @@ namespace BusinessLayer.Helpers
         public async Task<bool> IsDirectorAsync(int userId)
         {
             return await HasRoleAsync(userId, DIRECTOR_ROLE);
+        }
+
+        /// <summary>
+        /// Check if user is Staff
+        /// </summary>
+        public async Task<bool> IsStaffAsync(int userId)
+        {
+            return await HasRoleAsync(userId, STAFF_ROLE);
         }
 
         #endregion

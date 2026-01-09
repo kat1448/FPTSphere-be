@@ -5,13 +5,17 @@ using BusinessLayer.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using System.Linq;
+using System.IdentityModel.Tokens.Jwt;
 using BusinessLayer.Helpers;
 
 namespace WebApi.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [AllowAnonymous]
+    // Old code:
+    // [AllowAnonymous]
+    // Fixed: bỏ AllowAnonymous ở cấp controller để các action [Authorize] (như CreateEvent) bắt buộc phải authenticate
     public class EventsController : ControllerBase
 
     {
@@ -73,7 +77,10 @@ namespace WebApi.Controllers
         }
 
         [HttpPost]
-        [Authorize(Roles = "Admin,Event Manager")]
+        // Old code:
+        // [Authorize(Roles = "Admin,Event Manager")]
+        // Fixed:
+        [Authorize(Roles = "Admin,Event Manager,Staff")]
         public async Task<IActionResult> CreateEvent([FromBody] CreateEventDto dto)
         {
             try
@@ -87,11 +94,46 @@ namespace WebApi.Controllers
                     return BadRequest(ApiResponse<object>.ErrorResult("Invalid data", errors));
                 }
 
-                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
-                var result = await _eventService.CreateAsync(dto, userId);
+                // Old code:
+                // var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                
+                // Fixed: dùng HttpContext.User (claims đã được middleware JwtBearer validate),
+                // ưu tiên claim "UserId", sau đó fallback sang "sub"
+                var userIdClaimValue = User.Claims.FirstOrDefault(c => c.Type == "UserId")?.Value
+                                       ?? User.Claims.FirstOrDefault(c => c.Type == "sub")?.Value;
 
+                if (string.IsNullOrWhiteSpace(userIdClaimValue))
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot extract user ID from authenticated user claims"));
+                }
+
+                if (!int.TryParse(userIdClaimValue, out var userId) || userId <= 0)
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult($"Invalid user ID in claims: '{userIdClaimValue}'"));
+                }
+                // Old code:
+                // var result = await _eventService.CreateAsync(dto, userId);
+                // Fixed:
+                var userRole = User.FindFirst(ClaimTypes.Role)?.Value ?? "";
+                var result = await _eventService.CreateAsync(dto, userId, userRole);
+
+                // Determine success message based on role and status
+                string successMessage = "Event created successfully";
+                if (userRole == "Staff" && result.StatusId == 2) // PENDING_STATUS_ID
+                {
+                    successMessage = "Event created successfully and submitted for Manager approval";
+                }
+                else if ((userRole == "Event Manager" || userRole == "Admin") && result.StatusId == 1) // DRAFT_STATUS_ID
+                {
+                    successMessage = "Event created successfully as Draft. You can submit it for approval when ready.";
+                }
+
+                // Old code:
+                // return CreatedAtAction(nameof(GetEventById), new { id = result.EventId },
+                //     ApiResponse<EventDto>.SuccessResult(result, "Event created"));
+                // Fixed:
                 return CreatedAtAction(nameof(GetEventById), new { id = result.EventId },
-                    ApiResponse<EventDto>.SuccessResult(result, "Event created"));
+                    ApiResponse<EventDto>.SuccessResult(result, successMessage));
             }
             catch (InvalidOperationException ex)
             {
@@ -481,7 +523,10 @@ namespace WebApi.Controllers
         #region Event approve/reject
         // Get all events pending
         [HttpGet("pending-approval")]
-        [Authorize(Roles = "Director,Admin")]
+        // Old code:
+        // [Authorize(Roles = "Director,Admin")]
+        // Fixed:
+        [Authorize(Roles = "Director,Admin,Event Manager")]
         public async Task<IActionResult> GetPendingApprovals()
         {
             try
@@ -499,7 +544,10 @@ namespace WebApi.Controllers
 
         // Approve event
         [HttpPost("{id}/approve")]
-        [Authorize(Roles = "Director,Admin")]
+        // Old code:
+        // [Authorize(Roles = "Director,Admin")]
+        // Fixed:
+        [Authorize(Roles = "Director,Admin,Event Manager")]
         public async Task<IActionResult> ApproveEvent(int id, [FromBody] EventDecisionDto dto)
         {
             try
@@ -525,7 +573,10 @@ namespace WebApi.Controllers
 
         // Reject event
         [HttpPost("{id}/reject")]
-        [Authorize(Roles = "Director,Admin")]
+        // Old code:
+        // [Authorize(Roles = "Director,Admin")]
+        // Fixed:
+        [Authorize(Roles = "Director,Admin,Event Manager")]
         public async Task<IActionResult> RejectEvent(int id, [FromBody] EventDecisionDto dto)
         {
             try

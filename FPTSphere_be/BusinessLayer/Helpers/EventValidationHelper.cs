@@ -142,7 +142,7 @@ namespace BusinessLayer.Helpers
                 {
                     if (expectedAttendees.Value > location.Capacity.Value)
                         return ValidationResult.Fail(
-                            $"Expected attendees ({expectedAttendees}) exceeds location capacity ({location.Capacity})");
+                            $"Expected attendees ({expectedAttendees.Value}) exceeds location capacity ({location.Capacity.Value})");
                 }
             }
 

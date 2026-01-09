@@ -16,7 +16,10 @@ namespace BusinessLayer.Services.Interfaces
     {
         Task<PagedResult<EventDto>> GetEventsAsync(int page, int pageSize, EventFilterDto? filter, string sortBy, bool sortDescending);
         Task<EventDto?> GetEventByIdAsync(int id);
-        Task<EventDto> CreateAsync(CreateEventDto dto, int currentUserId);
+        // Old code:
+        // Task<EventDto> CreateAsync(CreateEventDto dto, int currentUserId);
+        // Fixed:
+        Task<EventDto> CreateAsync(CreateEventDto dto, int currentUserId, string? userRole = null);
         Task<EventDto?> UpdateAsync(int id, UpdateEventDto dto, int currentUserId);
         Task<bool> DeleteAsync(int id, int currentUserId);
 

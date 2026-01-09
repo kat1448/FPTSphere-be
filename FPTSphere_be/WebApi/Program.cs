@@ -89,6 +89,32 @@ builder.Services.AddAuthentication(options =>
             Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"])),
         ClockSkew = TimeSpan.Zero
     };
+
+    // Old behavior: JwtBearer mặc định chỉ chấp nhận header "Authorization: Bearer {token}"
+    // Fixed: chấp nhận cả "Bearer {token}" và "{token}" (không prefix), để Swagger chỉ cần nhập token trần
+    options.Events = new JwtBearerEvents
+    {
+        OnMessageReceived = context =>
+        {
+            var authHeader = context.Request.Headers["Authorization"].FirstOrDefault();
+
+            if (!string.IsNullOrWhiteSpace(authHeader))
+            {
+                // Nếu header bắt đầu bằng "Bearer ", cắt prefix
+                if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                {
+                    context.Token = authHeader.Substring("Bearer ".Length).Trim();
+                }
+                else
+                {
+                    // Nếu chỉ gửi token trần (không Bearer), vẫn chấp nhận
+                    context.Token = authHeader.Trim();
+                }
+            }
+
+            return Task.CompletedTask;
+        }
+    };
 });
 
 // CORS

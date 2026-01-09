@@ -194,7 +194,10 @@ namespace BusinessLayer.Services.Implementations
             return _mapper.Map<EventDto>(ev);
         }
 
-        public async Task<EventDto> CreateAsync(CreateEventDto dto, int currentUserId)
+        // Old code:
+        // public async Task<EventDto> CreateAsync(CreateEventDto dto, int currentUserId)
+        // Fixed:
+        public async Task<EventDto> CreateAsync(CreateEventDto dto, int currentUserId, string? userRole = null)
         {
             // ⭐ Main event: không có parent, không cần parentEventId / currentEventId
             var validation = await _validationHelper.ValidateEventDataAsync(
@@ -209,11 +212,56 @@ namespace BusinessLayer.Services.Implementations
             if (!validation.IsSuccess)
                 throw new InvalidOperationException(validation.ErrorMessage);
 
+            // Determine initial status based on user role
+            // If userRole is not provided, get it from database
+            if (string.IsNullOrEmpty(userRole))
+            {
+                var user = await _unitOfWork.Users.GetByIdAsync(currentUserId);
+                userRole = user?.Role?.RoleName ?? "";
+            }
+
+            // Staff creates event with PENDING status (needs Manager approval)
+            // Manager creates event with DRAFT status (can submit for approval later)
+            // Old code:
+            // ev.StatusId = DRAFT_STATUS_ID;
+            // Fixed:
+            int initialStatusId = DRAFT_STATUS_ID;
+            if (userRole == "Staff")
+            {
+                initialStatusId = PENDING_STATUS_ID;
+            }
+
             var ev = _mapper.Map<Event>(dto);
             ev.CreatedBy = currentUserId;
-            ev.StatusId = DRAFT_STATUS_ID;
+            ev.StatusId = initialStatusId;
             ev.CreatedAt = DateTime.Now;
             ev.IsDeleted = false;
+            ev.ParentEventId = null;
+
+            // Validate that status exists
+            var statusExists = await _unitOfWork.EventStatuses.GetByIdAsync(initialStatusId);
+            if (statusExists == null)
+                throw new InvalidOperationException($"Event status with ID {initialStatusId} does not exist");
+
+            // Validate that user exists
+            var userExists = await _unitOfWork.Users.GetByIdAsync(currentUserId);
+            if (userExists == null)
+                throw new InvalidOperationException($"User with ID {currentUserId} does not exist");
+
+            // Validate location exists if provided
+            if (ev.LocationId.HasValue)
+            {
+                var location = await _unitOfWork.Locations.GetByIdAsync(ev.LocationId.Value);
+                if (location == null)
+                    throw new InvalidOperationException($"Location with ID {ev.LocationId.Value} does not exist");
+            }
+
+            if (ev.ExternalLocationId.HasValue)
+            {
+                var extLocation = await _unitOfWork.ExternalLocations.GetByIdAsync(ev.ExternalLocationId.Value);
+                if (extLocation == null)
+                    throw new InvalidOperationException($"External location with ID {ev.ExternalLocationId.Value} does not exist");
+            }
 
             await _unitOfWork.Events.AddAsync(ev);
             await _unitOfWork.SaveChangesAsync();
