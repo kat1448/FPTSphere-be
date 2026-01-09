@@ -19,7 +19,12 @@ namespace DataLayer.Repositories.Implementations
         {
             return await _dbSet
                 .Include(u => u.Role)
-                .FirstOrDefaultAsync(u => u.Email == email);
+
+                // Old code:
+                // .FirstOrDefaultAsync(u => u.Email == email);
+
+                // Fixed:
+                .FirstOrDefaultAsync(u => u.Email.ToLower() == email.ToLower());
         }
 
         public async Task<User?> GetByGoogleIdAsync(string googleId)

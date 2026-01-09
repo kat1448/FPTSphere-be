@@ -37,7 +37,15 @@ namespace BusinessLayer.Services
                 var googleUser = await _googleAuthService.VerifyGoogleTokenAsync(idToken);
 
                 // ========== BƯỚC 2: KIỂM TRA EMAIL TRONG DATABASE ==========
-                var user = await _unitOfWork.Users.GetByEmailAsync(googleUser.Email);
+                // Old Code:
+                // var user = await _unitOfWork.Users.GetByEmailAsync(googleUser.Email);
+
+                // Fixed:
+                var user = await _unitOfWork.Users.GetByGoogleIdAsync(googleUser.GoogleId);
+                if (user == null)
+                {
+                    user = await _unitOfWork.Users.GetByEmailAsync(googleUser.Email);
+                }
 
                 // ========== BƯỚC 3: VALIDATE USER ==========
                 if (user == null)
