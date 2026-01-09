@@ -77,10 +77,8 @@ namespace WebApi.Controllers
         }
 
         [HttpPost]
-        // Old code:
-        // [Authorize(Roles = "Admin,Event Manager")]
-        // Fixed:
-        [Authorize(Roles = "Admin,Event Manager,Staff")]
+        // Fixed: Only Manager and Director can create events
+        [Authorize(Roles = "Admin,Event Manager,Director")]
         public async Task<IActionResult> CreateEvent([FromBody] CreateEventDto dto)
         {
             try
@@ -119,11 +117,15 @@ namespace WebApi.Controllers
 
                 // Determine success message based on role and status
                 string successMessage = "Event created successfully";
-                if (userRole == "Staff" && result.StatusId == 2) // PENDING_STATUS_ID
+                if (userRole == "Event Manager" && result.StatusId == 2) // PENDING_STATUS_ID
                 {
-                    successMessage = "Event created successfully and submitted for Manager approval";
+                    successMessage = "Event created successfully and submitted for Director approval";
                 }
-                else if ((userRole == "Event Manager" || userRole == "Admin") && result.StatusId == 1) // DRAFT_STATUS_ID
+                else if (userRole == "Director" && result.StatusId == 3) // APPROVED_STATUS_ID
+                {
+                    successMessage = "Event created successfully and automatically approved";
+                }
+                else if (userRole == "Admin" && result.StatusId == 1) // DRAFT_STATUS_ID
                 {
                     successMessage = "Event created successfully as Draft. You can submit it for approval when ready.";
                 }
@@ -186,15 +188,28 @@ namespace WebApi.Controllers
         {
             try
             {
-                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                // Fixed: dùng cùng cách parse userId như CreateEvent
+                var userIdClaimValue = User.Claims.FirstOrDefault(c => c.Type == "UserId")?.Value
+                                       ?? User.Claims.FirstOrDefault(c => c.Type == "sub")?.Value;
+
+                if (string.IsNullOrWhiteSpace(userIdClaimValue))
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot extract user ID from authenticated user claims"));
+                }
+
+                if (!int.TryParse(userIdClaimValue, out var userId) || userId <= 0)
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult($"Invalid user ID in claims: '{userIdClaimValue}'"));
+                }
+
                 var result = await _eventService.DeleteAsync(id, userId);
 
-                if (!result) return NotFound(ApiResponse<object>.ErrorResult("Event not found"));
-                return Ok(ApiResponse<object>.SuccessResult(null, "Event deleted"));
+                if (!result) return NotFound(ApiResponse<object>.ErrorResult("Event not found or already deleted"));
+                return Ok(ApiResponse<object>.SuccessResult(null, "Event deleted successfully"));
             }
-            catch (UnauthorizedAccessException)
+            catch (UnauthorizedAccessException ex)
             {
-                return Forbid();
+                return StatusCode(403, ApiResponse<object>.ErrorResult(ex.Message));
             }
             catch (InvalidOperationException ex)
             {
@@ -437,7 +452,20 @@ namespace WebApi.Controllers
         {
             try
             {
-                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                // Fixed: Parse userId correctly
+                var userIdClaimValue = User.Claims.FirstOrDefault(c => c.Type == "UserId")?.Value
+                                       ?? User.Claims.FirstOrDefault(c => c.Type == "sub")?.Value;
+
+                if (string.IsNullOrWhiteSpace(userIdClaimValue))
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot extract user ID from authenticated user claims"));
+                }
+
+                if (!int.TryParse(userIdClaimValue, out var userId) || userId <= 0)
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult($"Invalid user ID in claims: '{userIdClaimValue}'"));
+                }
+
                 var result = await _eventService.SubmitForApprovalAsync(id, userId);
 
                 if (result == null)
@@ -447,8 +475,8 @@ namespace WebApi.Controllers
             }
             catch (UnauthorizedAccessException ex)
             {
-                // Không đủ quyền hoặc sai trạng thái
-                return Forbid(ex.Message);
+                // Fixed: Return BadRequest with clear error message instead of Forbid
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
             }
             catch (InvalidOperationException ex)
             {
@@ -544,22 +572,33 @@ namespace WebApi.Controllers
 
         // Approve event
         [HttpPost("{id}/approve")]
-        // Old code:
-        // [Authorize(Roles = "Director,Admin")]
-        // Fixed:
         [Authorize(Roles = "Director,Admin,Event Manager")]
         public async Task<IActionResult> ApproveEvent(int id, [FromBody] EventDecisionDto dto)
         {
             try
             {
-                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                // Fixed: Parse userId correctly (same as CreateEvent)
+                var userIdClaimValue = User.Claims.FirstOrDefault(c => c.Type == "UserId")?.Value
+                                       ?? User.Claims.FirstOrDefault(c => c.Type == "sub")?.Value;
+
+                if (string.IsNullOrWhiteSpace(userIdClaimValue))
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot extract user ID from authenticated user claims"));
+                }
+
+                if (!int.TryParse(userIdClaimValue, out var userId) || userId <= 0)
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult($"Invalid user ID in claims: '{userIdClaimValue}'"));
+                }
+
                 var result = await _eventService.ApproveEventAsync(id, dto, userId);
 
                 return Ok(ApiResponse<EventDto>.SuccessResult(result, "Event approved successfully"));
             }
             catch (UnauthorizedAccessException ex)
             {
-                return Forbid(ex.Message);
+                // Fixed: Return BadRequest with clear error message instead of Forbid
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
             }
             catch (InvalidOperationException ex)
             {
@@ -573,22 +612,33 @@ namespace WebApi.Controllers
 
         // Reject event
         [HttpPost("{id}/reject")]
-        // Old code:
-        // [Authorize(Roles = "Director,Admin")]
-        // Fixed:
         [Authorize(Roles = "Director,Admin,Event Manager")]
         public async Task<IActionResult> RejectEvent(int id, [FromBody] EventDecisionDto dto)
         {
             try
             {
-                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                // Fixed: Parse userId correctly (same as CreateEvent)
+                var userIdClaimValue = User.Claims.FirstOrDefault(c => c.Type == "UserId")?.Value
+                                       ?? User.Claims.FirstOrDefault(c => c.Type == "sub")?.Value;
+
+                if (string.IsNullOrWhiteSpace(userIdClaimValue))
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot extract user ID from authenticated user claims"));
+                }
+
+                if (!int.TryParse(userIdClaimValue, out var userId) || userId <= 0)
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult($"Invalid user ID in claims: '{userIdClaimValue}'"));
+                }
+
                 var result = await _eventService.RejectEventAsync(id, dto, userId);
 
                 return Ok(ApiResponse<EventDto>.SuccessResult(result, "Event rejected successfully"));
             }
             catch (UnauthorizedAccessException ex)
             {
-                return Forbid(ex.Message);
+                // Fixed: Return BadRequest with clear error message instead of Forbid
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
             }
             catch (InvalidOperationException ex)
             {

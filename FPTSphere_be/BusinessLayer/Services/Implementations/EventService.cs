@@ -220,15 +220,22 @@ namespace BusinessLayer.Services.Implementations
                 userRole = user?.Role?.RoleName ?? "";
             }
 
-            // Staff creates event with PENDING status (needs Manager approval)
-            // Manager creates event with DRAFT status (can submit for approval later)
-            // Old code:
-            // ev.StatusId = DRAFT_STATUS_ID;
-            // Fixed:
+            // Fixed: New logic for event creation
+            // - Manager creates event with PENDING status (needs Director approval)
+            // - Director creates event with APPROVED status (auto-approved)
+            // - Admin creates event with DRAFT status (can submit for approval later)
             int initialStatusId = DRAFT_STATUS_ID;
-            if (userRole == "Staff")
+            if (userRole == "Event Manager")
             {
                 initialStatusId = PENDING_STATUS_ID;
+            }
+            else if (userRole == "Director")
+            {
+                initialStatusId = APPROVED_STATUS_ID;
+            }
+            else if (userRole == "Admin")
+            {
+                initialStatusId = DRAFT_STATUS_ID;
             }
 
             var ev = _mapper.Map<Event>(dto);
@@ -727,14 +734,36 @@ namespace BusinessLayer.Services.Implementations
             if (evt == null || evt.IsDeleted == true)
                 throw new InvalidOperationException("Event not found");
 
+            // Check permission first (this will throw UnauthorizedAccessException with clear message)
             var permission = await _permissionHelper.CanApproveEventAsync(evt, directorId);
-            permission.ThrowIfDenied();
+            if (!permission.IsAllowed)
+            {
+                throw new UnauthorizedAccessException(permission.DenyReason);
+            }
 
+            // Additional status check with clear message
             if (evt.StatusId != PENDING_STATUS_ID)
-                throw new InvalidOperationException("Only pending events can be approved");
+            {
+                var statusName = evt.StatusId switch
+                {
+                    1 => "Draft",
+                    2 => "Pending Approval",
+                    3 => "Approved",
+                    4 => "In Progress",
+                    5 => "Completed",
+                    6 => "Cancelled",
+                    7 => "Rejected",
+                    _ => "Unknown"
+                };
+                throw new InvalidOperationException($"Cannot approve event with status '{statusName}'. Only events with 'Pending Approval' status can be approved.");
+            }
 
+            // Validate status transition
             var statusCheck = _permissionHelper.ValidateStatusTransition(evt.StatusId, APPROVED_STATUS_ID);
-            statusCheck.ThrowIfDenied();
+            if (!statusCheck.IsAllowed)
+            {
+                throw new InvalidOperationException(statusCheck.DenyReason);
+            }
 
             evt.StatusId = APPROVED_STATUS_ID;
             evt.UpdatedAt = DateTime.Now;
@@ -771,16 +800,26 @@ namespace BusinessLayer.Services.Implementations
                     var staff = await _unitOfWork.Users.GetByIdAsync(task.AssignedTo);
                     if (staff != null && !string.IsNullOrWhiteSpace(staff.Email))
                     {
-                        var subject = $"New Task Assigned: {evt.EventName}";
-                        var body =
-                            $"Hello {staff.FullName},\n\n" +
-                            $"The event \"{evt.EventName}\" has been approved. Your task is now active.\n\n" +
-                            $"Task: {task.Title}\n" +
-                            $"Status: {task.Status}\n\n" +
-                            $"Please log in to view details and update progress.\n\n" +
-                            $"FPTU Event System";
+                        try
+                        {
+                            var subject = $"New Task Assigned: {evt.EventName}";
+                            var body =
+                                $"Hello {staff.FullName},\n\n" +
+                                $"The event \"{evt.EventName}\" has been approved. Your task is now active.\n\n" +
+                                $"Task: {task.Title}\n" +
+                                $"Status: {task.Status}\n\n" +
+                                $"Please log in to view details and update progress.\n\n" +
+                                $"FPTU Event System";
 
-                        await _emailService.SendEmailAsync(staff.Email, subject, body, staff.FullName);
+                            await _emailService.SendEmailAsync(staff.Email, subject, body, staff.FullName);
+                        }
+                        catch (Exception emailEx)
+                        {
+                            // Log email error but don't fail the approval
+                            // Email sending failure should not prevent event approval
+                            await LogEventActionAsync(eventId, directorId, "Approved (Email notification failed)", 
+                                $"Approval successful but email notification to {staff.FullName} failed: {emailEx.Message}");
+                        }
                     }
                 }
             }
@@ -797,14 +836,36 @@ namespace BusinessLayer.Services.Implementations
             if (evt == null || evt.IsDeleted == true)
                 throw new InvalidOperationException("Event not found");
 
+            // Check permission first (this will throw UnauthorizedAccessException with clear message)
             var permission = await _permissionHelper.CanApproveEventAsync(evt, directorId);
-            permission.ThrowIfDenied();
+            if (!permission.IsAllowed)
+            {
+                throw new UnauthorizedAccessException(permission.DenyReason);
+            }
 
+            // Additional status check with clear message
             if (evt.StatusId != PENDING_STATUS_ID)
-                throw new InvalidOperationException("Only pending events can be rejected");
+            {
+                var statusName = evt.StatusId switch
+                {
+                    1 => "Draft",
+                    2 => "Pending Approval",
+                    3 => "Approved",
+                    4 => "In Progress",
+                    5 => "Completed",
+                    6 => "Cancelled",
+                    7 => "Rejected",
+                    _ => "Unknown"
+                };
+                throw new InvalidOperationException($"Cannot reject event with status '{statusName}'. Only events with 'Pending Approval' status can be rejected.");
+            }
 
+            // Validate status transition
             var statusCheck = _permissionHelper.ValidateStatusTransition(evt.StatusId, REJECTED_STATUS_ID);
-            statusCheck.ThrowIfDenied();
+            if (!statusCheck.IsAllowed)
+            {
+                throw new InvalidOperationException(statusCheck.DenyReason);
+            }
 
             evt.StatusId = REJECTED_STATUS_ID;
             evt.UpdatedAt = DateTime.Now;
@@ -836,18 +897,29 @@ namespace BusinessLayer.Services.Implementations
                 }
             }
 
+            // Send rejection email to creator (non-blocking - don't fail if email fails)
             var creator = await _unitOfWork.Users.GetByIdAsync(evt.CreatedBy);
             if (creator != null && !string.IsNullOrWhiteSpace(creator.Email))
             {
-                var subject = $"Event Rejected: {evt.EventName}";
-                var body =
-                    $"Hello {creator.FullName},\n\n" +
-                    $"Your event \"{evt.EventName}\" has been rejected.\n\n" +
-                    $"Reason: {dto?.Comment}\n\n" +
-                    $"Please revise and submit again.\n\n" +
-                    $"FPTU Event System";
+                try
+                {
+                    var subject = $"Event Rejected: {evt.EventName}";
+                    var body =
+                        $"Hello {creator.FullName},\n\n" +
+                        $"Your event \"{evt.EventName}\" has been rejected.\n\n" +
+                        $"Reason: {dto?.Comment ?? "No reason provided"}\n\n" +
+                        $"Please revise and submit again.\n\n" +
+                        $"FPTU Event System";
 
-                await _emailService.SendEmailAsync(creator.Email, subject, body, creator.FullName);
+                    await _emailService.SendEmailAsync(creator.Email, subject, body, creator.FullName);
+                }
+                catch (Exception emailEx)
+                {
+                    // Log email error but don't fail the rejection
+                    // Email sending failure should not prevent event rejection
+                    await LogEventActionAsync(eventId, directorId, "Rejected (Email notification failed)", 
+                        $"Rejection successful but email notification failed: {emailEx.Message}");
+                }
             }
 
             await _unitOfWork.SaveChangesAsync();

@@ -15,6 +15,14 @@ namespace DataLayer.Repositories.Implementations
         public UserRepository(EventDbContext context) : base(context)
         {
         }
+
+        // Override GetByIdAsync to always load Role navigation property
+        public override async Task<User?> GetByIdAsync(int id)
+        {
+            return await _dbSet
+                .Include(u => u.Role)
+                .FirstOrDefaultAsync(u => u.UserId == id);
+        }
         public async Task<User?> GetByEmailAsync(string email)
         {
             return await _dbSet

@@ -67,11 +67,80 @@ namespace BusinessLayer.Helpers
 
         /// <summary>
         /// Check if user can delete event
-        /// Same rules as modify, but extracted for clarity
+        /// Rules:
+        /// - Owner can delete their own events (if status allows)
+        /// - Admin and Event Manager can delete any event (if status allows)
+        /// - Cannot delete Completed events or events that have already ended
+        /// - Can delete: Draft, Pending, Rejected, Cancelled
+        /// - Cannot delete: Approved (if in progress), In Progress, Completed
         /// </summary>
         public async Task<PermissionResult> CanDeleteEventAsync(Event ev, int currentUserId)
         {
-            return await CanModifyEventAsync(ev, currentUserId);
+            // Cannot delete completed events
+            if (ev.StatusId == COMPLETED_STATUS_ID)
+            {
+                return PermissionResult.Deny("Cannot delete completed events");
+            }
+
+            // Cannot delete events that have already ended (unless cancelled/rejected)
+            if (ev.EndTime < DateTime.Now && ev.StatusId != CANCELLED_STATUS_ID && ev.StatusId != REJECTED_STATUS_ID)
+            {
+                return PermissionResult.Deny("Cannot delete events that have already ended");
+            }
+
+            // Cannot delete events that are in progress
+            if (ev.StatusId == INPROGRESS_STATUS_ID)
+            {
+                return PermissionResult.Deny("Cannot delete events that are currently in progress");
+            }
+
+            // Owner can delete their own events (if status allows)
+            if (ev.CreatedBy == currentUserId)
+            {
+                // Owner can delete: Draft, Pending, Rejected, Cancelled
+                if (ev.StatusId == DRAFT_STATUS_ID || 
+                    ev.StatusId == PENDING_STATUS_ID || 
+                    ev.StatusId == REJECTED_STATUS_ID || 
+                    ev.StatusId == CANCELLED_STATUS_ID)
+                {
+                    return PermissionResult.Allow();
+                }
+                
+                // Owner cannot delete Approved events (must cancel first)
+                if (ev.StatusId == APPROVED_STATUS_ID)
+                {
+                    return PermissionResult.Deny("Cannot delete approved events. Please cancel the event instead.");
+                }
+            }
+
+            // Admin and Event Manager can delete any event (if status allows)
+            var currentUser = await _unitOfWork.Users.GetByIdAsync(currentUserId);
+            if (currentUser == null)
+            {
+                return PermissionResult.Deny("User not found");
+            }
+
+            var roleName = currentUser.Role?.RoleName ?? "";
+            
+            if (roleName == ADMIN_ROLE || roleName == EVENT_MANAGER_ROLE)
+            {
+                // Admin/Event Manager can delete: Draft, Pending, Rejected, Cancelled, Approved (if not started)
+                if (ev.StatusId == DRAFT_STATUS_ID || 
+                    ev.StatusId == PENDING_STATUS_ID || 
+                    ev.StatusId == REJECTED_STATUS_ID || 
+                    ev.StatusId == CANCELLED_STATUS_ID ||
+                    (ev.StatusId == APPROVED_STATUS_ID && ev.StartTime > DateTime.Now))
+                {
+                    return PermissionResult.Allow();
+                }
+                
+                if (ev.StatusId == APPROVED_STATUS_ID && ev.StartTime <= DateTime.Now)
+                {
+                    return PermissionResult.Deny("Cannot delete approved events that have started. Please cancel the event instead.");
+                }
+            }
+
+            return PermissionResult.Deny("You don't have permission to delete this event");
         }
 
         /// <summary>
