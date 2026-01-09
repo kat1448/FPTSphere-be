@@ -27,6 +27,7 @@ namespace WebApi.Controllers
         // ==================== MAIN EVENT ENDPOINTS ====================
 
         [HttpGet]
+        [Authorize(Roles = "Admin,Event Manager,Director")]
         public async Task<IActionResult> GetEvents(
             [FromQuery] int page = 1, [FromQuery] int pageSize = 10,
             [FromQuery] int? statusId = null, [FromQuery] DateTime? startDate = null, [FromQuery] DateTime? endDate = null,
@@ -62,6 +63,7 @@ namespace WebApi.Controllers
         }
 
         [HttpGet("{id}")]
+        [Authorize(Roles = "Admin,Event Manager,Director")]
         public async Task<IActionResult> GetEventById(int id)
         {
             try
@@ -227,6 +229,7 @@ namespace WebApi.Controllers
         /// Get all sub-events of a main event
         /// </summary>
         [HttpGet("{id}/subevents")]
+        [Authorize(Roles = "Admin,Event Manager,Director")]
         public async Task<IActionResult> GetSubEvents(int id)
         {
             try
