@@ -263,6 +263,22 @@ namespace BusinessLayer.Services.Implementations
                     throw new InvalidOperationException($"External location with ID {ev.ExternalLocationId.Value} does not exist");
             }
 
+            // Validate category exists if provided
+            if (ev.CategoryId.HasValue)
+            {
+                var category = await _unitOfWork.EventCategories.GetByIdAsync(ev.CategoryId.Value);
+                if (category == null)
+                    throw new InvalidOperationException($"Event category with ID {ev.CategoryId.Value} does not exist");
+            }
+
+            // Validate type exists if provided
+            if (ev.TypeId.HasValue)
+            {
+                var type = await _unitOfWork.EventTypes.GetByIdAsync(ev.TypeId.Value);
+                if (type == null)
+                    throw new InvalidOperationException($"Event type with ID {ev.TypeId.Value} does not exist");
+            }
+
             await _unitOfWork.Events.AddAsync(ev);
             await _unitOfWork.SaveChangesAsync();
 

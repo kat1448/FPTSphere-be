@@ -27,6 +27,8 @@ namespace DataLayer.Repositories.Implementations
                 .Include(e => e.Status)
                 .Include(e => e.Template)
                 .Include(e => e.ParentEvent)
+                .Include(e => e.Category)
+                .Include(e => e.Type)
                 .FirstOrDefaultAsync(e => e.EventId == id);
         }
 
@@ -62,6 +64,8 @@ namespace DataLayer.Repositories.Implementations
                 .Include(e => e.Status)
                 .Include(e => e.Template)
                 .Include(e => e.ParentEvent)
+                .Include(e => e.Category)
+                .Include(e => e.Type)
                 .ToListAsync();
         }
 
@@ -76,6 +80,8 @@ namespace DataLayer.Repositories.Implementations
                 .Include(e => e.ExternalLocation)
                 .Include(e => e.Status)
                 .Include(e => e.ParentEvent)
+                .Include(e => e.Category)
+                .Include(e => e.Type)
                 .Where(e => e.ParentEventId == parentEventId && e.IsDeleted != true)
                 .OrderBy(e => e.StartTime)
                 .ToListAsync();

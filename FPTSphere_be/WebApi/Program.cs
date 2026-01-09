@@ -28,6 +28,8 @@ builder.Services.AddScoped<IResourceRepository, ResourceRepository>();
 builder.Services.AddScoped<IExternalLocationRepository, ExternalLocationRepository>();
 builder.Services.AddScoped<IEventStatusRepository, EventStatusRepository>();
 builder.Services.AddScoped<IEventRepository, EventRepository>();
+builder.Services.AddScoped<IEventCategoryRepository, EventCategoryRepository>();
+builder.Services.AddScoped<IEventTypeRepository, EventTypeRepository>();
 builder.Services.AddScoped<IExternalServiceRepository, ExternalServiceRepository>();
 builder.Services.AddScoped<IEventResourceRepository, EventResourceRepository>();
 builder.Services.AddScoped<IEventApprovalRepository, EventApprovalRepository>();
@@ -44,6 +46,8 @@ builder.Services.AddAutoMapper(
     typeof(ResourceMappingProfile),
     typeof(EventStatusMappingProfile),
     typeof(EventMappingProfile),
+    typeof(EventCategoryMappingProfile),
+    typeof(EventTypeMappingProfile),
     typeof(ExternalServiceMappingProfile),
     typeof(EventResourceMappingProfile),
     typeof(ExternalLocationMappingProfile),
@@ -59,6 +63,8 @@ builder.Services.AddScoped<IResourceService, ResourceService>();
 builder.Services.AddScoped<IExternalLocationService, ExternalLocationService>();
 builder.Services.AddScoped<IEventStatusService, EventStatusService>();
 builder.Services.AddScoped<IEventService, EventService>();
+builder.Services.AddScoped<IEventCategoryService, EventCategoryService>();
+builder.Services.AddScoped<IEventTypeService, EventTypeService>();
 builder.Services.AddScoped<IExternalServiceService, ExternalServiceService>();
 builder.Services.AddScoped<IEventResourceService, EventResourceService>();
 builder.Services.AddScoped<IEventTaskService, EventTaskService>();

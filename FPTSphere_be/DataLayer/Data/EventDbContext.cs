@@ -36,6 +36,10 @@ public partial class EventDbContext : DbContext
 
     public virtual DbSet<EventTask> EventTasks { get; set; }
 
+    public virtual DbSet<EventCategory> EventCategories { get; set; }
+
+    public virtual DbSet<EventType> EventTypes { get; set; }
+
     public virtual DbSet<ExternalLocation> ExternalLocations { get; set; }
 
     public virtual DbSet<ExternalService> ExternalServices { get; set; }
@@ -94,6 +98,20 @@ public partial class EventDbContext : DbContext
                 .HasConstraintName("FK__Events__status_i__7F2BE32F");
 
             entity.HasOne(d => d.Template).WithMany(p => p.Events).HasConstraintName("FK_Events_FeedbackTemplates");
+
+            entity.HasOne(d => d.Category).WithMany(p => p.Events).HasConstraintName("FK_Events_EventCategories");
+
+            entity.HasOne(d => d.Type).WithMany(p => p.Events).HasConstraintName("FK_Events_EventTypes");
+        });
+
+        modelBuilder.Entity<EventCategory>(entity =>
+        {
+            entity.HasKey(e => e.CategoryId).HasName("PK__EventCategories__CategoryId");
+        });
+
+        modelBuilder.Entity<EventType>(entity =>
+        {
+            entity.HasKey(e => e.TypeId).HasName("PK__EventTypes__TypeId");
         });
 
         modelBuilder.Entity<EventAiresult>(entity =>

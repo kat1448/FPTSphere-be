@@ -26,6 +26,8 @@ namespace DataLayer.Repositories.Implementations
         private IEventApprovalRepository? _eventApprovals;
         private IEventLogRepository? _eventLogs;
         private IEventInvitationRepository? _eventInvitations;
+        private IEventCategoryRepository? _eventCategories;
+        private IEventTypeRepository? _eventTypes;
 
         public UnitOfWork(EventDbContext context)
         {
@@ -72,6 +74,9 @@ namespace DataLayer.Repositories.Implementations
 
         private IEventAttendanceRepository? _eventAttendances;
         public IEventAttendanceRepository EventAttendances => _eventAttendances ??= new EventAttendanceRepository(_context);
+
+        public IEventCategoryRepository EventCategories => _eventCategories ??= new EventCategoryRepository(_context);
+        public IEventTypeRepository EventTypes => _eventTypes ??= new EventTypeRepository(_context);
 
         // TRANSACTION MANAGEMENT
         public async Task<int> SaveChangesAsync()

@@ -39,5 +39,10 @@ namespace BusinessLayer.DTOs.Event
 
         // Feedback template (optional)
         public int? TemplateId { get; set; }
+
+        // Category and Type (optional)
+        public int? CategoryId { get; set; }
+
+        public int? TypeId { get; set; }
     }
 }

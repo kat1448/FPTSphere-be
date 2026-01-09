@@ -38,6 +38,10 @@ namespace BusinessLayer.DTOs.Event
         public int? ExternalLocationId { get; set; }
 
         public int? TemplateId { get; set; }
+
+        public int? CategoryId { get; set; }
+
+        public int? TypeId { get; set; }
     }
 
 }

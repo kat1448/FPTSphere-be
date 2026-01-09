@@ -17,7 +17,9 @@ namespace BusinessLayer.Mappings
                 .ForMember(d => d.Creator, opt => opt.MapFrom(s => s.CreatedByNavigation))
                 .ForMember(d => d.Location, opt => opt.MapFrom(s => s.Location))
                 .ForMember(d => d.ExternalLocation, opt => opt.MapFrom(s => s.ExternalLocation))
-                .ForMember(d => d.Status, opt => opt.MapFrom(s => s.Status));
+                .ForMember(d => d.Status, opt => opt.MapFrom(s => s.Status))
+                .ForMember(d => d.CategoryName, opt => opt.MapFrom(s => s.Category != null ? s.Category.CategoryName : null))
+                .ForMember(d => d.TypeName, opt => opt.MapFrom(s => s.Type != null ? s.Type.TypeName : null));
 
             CreateMap<CreateEventDto, Event>()
                 .ForMember(d => d.EventId, opt => opt.Ignore())
