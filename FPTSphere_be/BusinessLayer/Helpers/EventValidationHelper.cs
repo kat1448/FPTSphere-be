@@ -49,9 +49,19 @@ namespace BusinessLayer.Helpers
                 return timeValidation;
 
             // 3. Location existence + capacity validation
-            var locationValidation = await ValidateLocationAsync(locationId, externalLocationId, expectedAttendees);
-            if (!locationValidation.IsSuccess)
-                return locationValidation;
+            // Sub-event có thể không có location (sẽ inherit từ parent)
+            // Chỉ validate location nếu:
+            //   - Không phải sub-event (parentEventId = null), HOẶC
+            //   - Sub-event có location riêng (locationId hoặc externalLocationId != null)
+            bool isSubEvent = parentEventId.HasValue;
+            bool hasLocation = locationId.HasValue || externalLocationId.HasValue;
+            
+            if (!isSubEvent || hasLocation)
+            {
+                var locationValidation = await ValidateLocationAsync(locationId, externalLocationId, expectedAttendees);
+                if (!locationValidation.IsSuccess)
+                    return locationValidation;
+            }
 
             // 4. Location availability (conflict with other events)
             //    - Main event: chỉ truyền currentEventId (nếu update) để bỏ qua chính nó

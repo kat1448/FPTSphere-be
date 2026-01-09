@@ -30,6 +30,12 @@ namespace BusinessLayer.DTOs.Event
         public int StatusId { get; set; }
         public string StatusName { get; set; } = null!;
 
+        // Category and Type
+        public int? CategoryId { get; set; }
+        public string? CategoryName { get; set; }
+        public int? TypeId { get; set; }
+        public string? TypeName { get; set; }
+
         // Metadata
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
@@ -60,6 +66,10 @@ namespace BusinessLayer.DTOs.Event
         // Must have ONE of these
         public int? LocationId { get; set; }
         public int? ExternalLocationId { get; set; }
+
+        // Category and Type (optional - will be auto-filled from parent if not provided)
+        public int? CategoryId { get; set; }
+        public int? TypeId { get; set; }
     }
 
     /// <summary>
@@ -86,5 +96,9 @@ namespace BusinessLayer.DTOs.Event
 
         public int? LocationId { get; set; }
         public int? ExternalLocationId { get; set; }
+
+        // Category and Type (optional)
+        public int? CategoryId { get; set; }
+        public int? TypeId { get; set; }
     }
 }

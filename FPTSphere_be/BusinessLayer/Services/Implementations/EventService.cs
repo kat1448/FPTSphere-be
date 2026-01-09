@@ -401,6 +401,48 @@ namespace BusinessLayer.Services.Implementations
             subEvent.CreatedAt = DateTime.Now;
             subEvent.IsDeleted = false;
 
+            // Auto-fill CategoryId and TypeId from parent event if not provided
+            if (!subEvent.CategoryId.HasValue && parent.CategoryId.HasValue)
+            {
+                subEvent.CategoryId = parent.CategoryId;
+            }
+
+            if (!subEvent.TypeId.HasValue && parent.TypeId.HasValue)
+            {
+                subEvent.TypeId = parent.TypeId;
+            }
+
+            // Auto-fill LocationId and ExternalLocationId from parent event if not provided
+            // Sub-event có thể có location riêng hoặc inherit từ parent
+            if (!subEvent.LocationId.HasValue && !subEvent.ExternalLocationId.HasValue)
+            {
+                // Nếu sub-event không có location nào, lấy từ parent
+                if (parent.LocationId.HasValue)
+                {
+                    subEvent.LocationId = parent.LocationId;
+                }
+                else if (parent.ExternalLocationId.HasValue)
+                {
+                    subEvent.ExternalLocationId = parent.ExternalLocationId;
+                }
+            }
+
+            // Validate category exists if provided
+            if (subEvent.CategoryId.HasValue)
+            {
+                var category = await _unitOfWork.EventCategories.GetByIdAsync(subEvent.CategoryId.Value);
+                if (category == null)
+                    throw new InvalidOperationException($"Event category with ID {subEvent.CategoryId.Value} does not exist");
+            }
+
+            // Validate type exists if provided
+            if (subEvent.TypeId.HasValue)
+            {
+                var type = await _unitOfWork.EventTypes.GetByIdAsync(subEvent.TypeId.Value);
+                if (type == null)
+                    throw new InvalidOperationException($"Event type with ID {subEvent.TypeId.Value} does not exist");
+            }
+
             await _unitOfWork.Events.AddAsync(subEvent);
             await _unitOfWork.SaveChangesAsync();
 
@@ -446,6 +488,22 @@ namespace BusinessLayer.Services.Implementations
 
             _mapper.Map(dto, subEvent);
             subEvent.UpdatedAt = DateTime.Now;
+
+            // Validate category exists if provided
+            if (subEvent.CategoryId.HasValue)
+            {
+                var category = await _unitOfWork.EventCategories.GetByIdAsync(subEvent.CategoryId.Value);
+                if (category == null)
+                    throw new InvalidOperationException($"Event category with ID {subEvent.CategoryId.Value} does not exist");
+            }
+
+            // Validate type exists if provided
+            if (subEvent.TypeId.HasValue)
+            {
+                var type = await _unitOfWork.EventTypes.GetByIdAsync(subEvent.TypeId.Value);
+                if (type == null)
+                    throw new InvalidOperationException($"Event type with ID {subEvent.TypeId.Value} does not exist");
+            }
 
             await _unitOfWork.Events.UpdateAsync(subEvent);
             await _unitOfWork.SaveChangesAsync();

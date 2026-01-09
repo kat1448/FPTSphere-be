@@ -264,7 +264,20 @@ namespace WebApi.Controllers
                     return BadRequest(ApiResponse<object>.ErrorResult("Invalid data", errors));
                 }
 
-                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                // Fixed: Parse userId correctly
+                var userIdClaimValue = User.Claims.FirstOrDefault(c => c.Type == "UserId")?.Value
+                                       ?? User.Claims.FirstOrDefault(c => c.Type == "sub")?.Value;
+
+                if (string.IsNullOrWhiteSpace(userIdClaimValue))
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot extract user ID from authenticated user claims"));
+                }
+
+                if (!int.TryParse(userIdClaimValue, out var userId) || userId <= 0)
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult($"Invalid user ID in claims: '{userIdClaimValue}'"));
+                }
+
                 var result = await _eventService.CreateSubEventAsync(id, dto, userId);
 
                 return CreatedAtAction(
@@ -272,9 +285,9 @@ namespace WebApi.Controllers
                     new { id = result.EventId },
                     ApiResponse<SubEventDto>.SuccessResult(result, "Sub-event created successfully"));
             }
-            catch (UnauthorizedAccessException)
+            catch (UnauthorizedAccessException ex)
             {
-                return Forbid();
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
             }
             catch (InvalidOperationException ex)
             {
@@ -304,7 +317,20 @@ namespace WebApi.Controllers
                     return BadRequest(ApiResponse<object>.ErrorResult("Invalid data", errors));
                 }
 
-                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                // Fixed: Parse userId correctly
+                var userIdClaimValue = User.Claims.FirstOrDefault(c => c.Type == "UserId")?.Value
+                                       ?? User.Claims.FirstOrDefault(c => c.Type == "sub")?.Value;
+
+                if (string.IsNullOrWhiteSpace(userIdClaimValue))
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot extract user ID from authenticated user claims"));
+                }
+
+                if (!int.TryParse(userIdClaimValue, out var userId) || userId <= 0)
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult($"Invalid user ID in claims: '{userIdClaimValue}'"));
+                }
+
                 var result = await _eventService.UpdateSubEventAsync(subEventId, dto, userId);
 
                 if (result == null)
@@ -312,9 +338,9 @@ namespace WebApi.Controllers
 
                 return Ok(ApiResponse<SubEventDto>.SuccessResult(result, "Sub-event updated successfully"));
             }
-            catch (UnauthorizedAccessException)
+            catch (UnauthorizedAccessException ex)
             {
-                return Forbid();
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
             }
             catch (InvalidOperationException ex)
             {
@@ -335,7 +361,20 @@ namespace WebApi.Controllers
         {
             try
             {
-                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                // Fixed: Parse userId correctly
+                var userIdClaimValue = User.Claims.FirstOrDefault(c => c.Type == "UserId")?.Value
+                                       ?? User.Claims.FirstOrDefault(c => c.Type == "sub")?.Value;
+
+                if (string.IsNullOrWhiteSpace(userIdClaimValue))
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot extract user ID from authenticated user claims"));
+                }
+
+                if (!int.TryParse(userIdClaimValue, out var userId) || userId <= 0)
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult($"Invalid user ID in claims: '{userIdClaimValue}'"));
+                }
+
                 var result = await _eventService.DeleteSubEventAsync(subEventId, userId);
 
                 if (!result)
@@ -343,9 +382,9 @@ namespace WebApi.Controllers
 
                 return Ok(ApiResponse<object>.SuccessResult(null, "Sub-event deleted successfully"));
             }
-            catch (UnauthorizedAccessException)
+            catch (UnauthorizedAccessException ex)
             {
-                return Forbid();
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
             }
             catch (InvalidOperationException ex)
             {
