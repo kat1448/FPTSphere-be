@@ -51,7 +51,8 @@ builder.Services.AddAutoMapper(
     typeof(ExternalServiceMappingProfile),
     typeof(EventResourceMappingProfile),
     typeof(ExternalLocationMappingProfile),
-    typeof(EventApprovalMappingProfile));
+    typeof(EventApprovalMappingProfile),
+    typeof(EventTaskMappingProfile));
 
 
 // Services

@@ -211,9 +211,19 @@ public partial class EventDbContext : DbContext
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK__EventTask__assig__01142BA1");
 
+            entity.HasOne(d => d.AssignByNavigation).WithMany(p => p.EventTasksAssignedBy)
+                .HasForeignKey(d => d.AssignBy)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK__EventTask__assign_by__");
+
             entity.HasOne(d => d.Event).WithMany(p => p.EventTasks)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK__EventTask__event__02084FDA");
+
+            entity.HasOne(d => d.ParentTask).WithMany(p => p.SubTasks)
+                .HasForeignKey(d => d.ParentTaskId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK__EventTask__parent_task__");
         });
 
         modelBuilder.Entity<ExternalLocation>(entity =>
