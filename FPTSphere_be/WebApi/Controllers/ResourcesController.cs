@@ -8,7 +8,6 @@ namespace WebApi.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    [Authorize]
     public class ResourcesController : ControllerBase
     {
         private readonly IResourceService _resourceService;
@@ -18,7 +17,9 @@ namespace WebApi.Controllers
             _resourceService = resourceService;
         }
 
+        // GET LIST RESOURCES - All roles can view
         [HttpGet]
+        [Authorize] // All authenticated users can view
         public async Task<IActionResult> GetResources(
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 10,
@@ -42,7 +43,9 @@ namespace WebApi.Controllers
             }
         }
 
+        // GET RESOURCE BY ID - All roles can view
         [HttpGet("{id}")]
+        [Authorize] // All authenticated users can view
         public async Task<IActionResult> GetById(int id)
         {
             try
@@ -59,7 +62,9 @@ namespace WebApi.Controllers
             }
         }
 
+        // GET ACTIVE RESOURCES - All roles can view
         [HttpGet("active")]
+        [Authorize] // All authenticated users can view
         public async Task<IActionResult> GetActive()
         {
             try
@@ -74,7 +79,9 @@ namespace WebApi.Controllers
             }
         }
 
+        // GET RESOURCES BY TYPE - All roles can view
         [HttpGet("type/{type}")]
+        [Authorize] // All authenticated users can view
         public async Task<IActionResult> GetByType(string type)
         {
             try
@@ -89,7 +96,9 @@ namespace WebApi.Controllers
             }
         }
 
+        // SEARCH RESOURCES - All roles can view
         [HttpGet("search")]
+        [Authorize] // All authenticated users can view
         public async Task<IActionResult> Search([FromQuery] string term)
         {
             try
@@ -107,7 +116,9 @@ namespace WebApi.Controllers
             }
         }
 
+        // GET AVAILABLE QUANTITY - All roles can view
         [HttpGet("{id}/available-quantity")]
+        [Authorize] // All authenticated users can view
         public async Task<IActionResult> GetAvailableQuantity(int id)
         {
             try
@@ -122,6 +133,7 @@ namespace WebApi.Controllers
             }
         }
 
+        // CREATE RESOURCE - Admin only
         [HttpPost]
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Create([FromBody] CreateResourceDto dto)
@@ -141,6 +153,7 @@ namespace WebApi.Controllers
             }
         }
 
+        // UPDATE RESOURCE - Admin only
         [HttpPut("{id}")]
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Update(int id, [FromBody] UpdateResourceDto dto)
@@ -162,15 +175,23 @@ namespace WebApi.Controllers
             }
         }
 
+        // TOGGLE RESOURCE STATUS (Active/Deactive) - Admin only (Soft Delete)
         [HttpPut("{id}/toggle")]
         [Authorize(Roles = "Admin")]
-        public async Task<IActionResult> Toggle(int id)
+        public async Task<IActionResult> ToggleStatus(int id)
         {
             try
             {
+                var resource = await _resourceService.GetByIdAsync(id);
+                if (resource == null)
+                    return NotFound(ApiResponse<object>.ErrorResult($"Resource {id} not found"));
+
                 var isActive = await _resourceService.ToggleStatusAsync(id);
-                return Ok(ApiResponse<bool>.SuccessResult(
-                    isActive, $"Resource {(isActive ? "activated" : "deactivated")}"));
+                var updatedResource = await _resourceService.GetByIdAsync(id);
+                
+                return Ok(ApiResponse<ResourceDto>.SuccessResult(
+                    updatedResource!, 
+                    $"Resource {(isActive ? "activated" : "deactivated")} successfully"));
             }
             catch (Exception ex)
             {
@@ -178,17 +199,28 @@ namespace WebApi.Controllers
             }
         }
 
+        // DELETE RESOURCE (Soft Delete - Deactivate) - Admin only
+        // This endpoint uses soft delete by setting IsActive = false
         [HttpDelete("{id}")]
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> Delete(int id)
         {
             try
             {
-                var (success, message) = await _resourceService.HardDeleteAsync(id);
-                if (!success)
-                    return BadRequest(ApiResponse<object>.ErrorResult(message));
+                var resource = await _resourceService.GetByIdAsync(id);
+                if (resource == null)
+                    return NotFound(ApiResponse<object>.ErrorResult($"Resource {id} not found"));
 
-                return Ok(ApiResponse<bool>.SuccessResult(true, message));
+                // Soft delete: deactivate if currently active
+                if (resource.IsActive == true)
+                {
+                    await _resourceService.ToggleStatusAsync(id);
+                }
+
+                var updatedResource = await _resourceService.GetByIdAsync(id);
+                return Ok(ApiResponse<ResourceDto>.SuccessResult(
+                    updatedResource!, 
+                    "Resource deactivated successfully"));
             }
             catch (Exception ex)
             {
