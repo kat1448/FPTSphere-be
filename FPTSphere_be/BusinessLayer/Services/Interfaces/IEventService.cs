@@ -50,5 +50,9 @@ namespace BusinessLayer.Services.Interfaces
         Task<EventAttendanceDto> CheckoutEventAsync(int eventId, int userId);
         Task<List<RegisteredEventFullDto>> GetRegisteredEventsFullAsync(int userId);
         Task UnregisterEventAsync(int eventId, int userId);
+
+        // Sub-event email and QR code
+        Task<GenerateQRCodeResponseDto> GenerateQRCodeForSubEventAsync(int subEventId, GenerateQRCodeDto dto);
+        Task<SendSubEventEmailResponseDto> SendEmailToSubEventAttendeesAsync(int subEventId, SendSubEventEmailDto dto, int currentUserId);
     }
 }

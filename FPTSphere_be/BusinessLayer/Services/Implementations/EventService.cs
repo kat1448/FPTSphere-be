@@ -13,6 +13,9 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using QRCoder;
+using System.Drawing;
+using Microsoft.Extensions.Options;
 
 
 namespace BusinessLayer.Services.Implementations
@@ -54,7 +57,6 @@ namespace BusinessLayer.Services.Implementations
             _emailService = emailService;
             _eventTaskService = eventTaskService;
             _eventTaskRepository = eventTaskRepository;
-
         }
 
         #region Auto status update
@@ -223,19 +225,15 @@ namespace BusinessLayer.Services.Implementations
             // Fixed: New logic for event creation
             // - Manager creates event with PENDING status (needs Director approval)
             // - Director creates event with APPROVED status (auto-approved)
-            // - Admin creates event with DRAFT status (can submit for approval later)
+            // - Admin creates event with APPROVED status (auto-approved)
             int initialStatusId = DRAFT_STATUS_ID;
             if (userRole == "Event Manager")
             {
                 initialStatusId = PENDING_STATUS_ID;
             }
-            else if (userRole == "Director")
+            else if (userRole == "Director" || userRole == "Admin")
             {
                 initialStatusId = APPROVED_STATUS_ID;
-            }
-            else if (userRole == "Admin")
-            {
-                initialStatusId = DRAFT_STATUS_ID;
             }
 
             var ev = _mapper.Map<Event>(dto);
@@ -1088,5 +1086,237 @@ namespace BusinessLayer.Services.Implementations
             await _unitOfWork.EventAttendances.DeleteAsync(attendance);
             await _unitOfWork.SaveChangesAsync();
         }
+
+        #region Sub-event Email and QR Code
+
+        /// <summary>
+        /// Generate QR code for sub-event registration form (Google Form URL)
+        /// </summary>
+        public async Task<GenerateQRCodeResponseDto> GenerateQRCodeForSubEventAsync(int subEventId, GenerateQRCodeDto dto)
+        {
+            var subEvent = await _unitOfWork.Events.GetByIdAsync(subEventId);
+            if (subEvent == null || subEvent.IsDeleted == true)
+                throw new InvalidOperationException("Sub-event not found");
+
+            if (subEvent.ParentEventId == null)
+                throw new InvalidOperationException("This is not a sub-event");
+
+            // Use Google Form URL provided by frontend
+            var googleFormUrl = dto.GoogleFormUrl;
+
+            // Generate QR code
+            using var qrGenerator = new QRCodeGenerator();
+            var qrCodeData = qrGenerator.CreateQrCode(googleFormUrl, QRCodeGenerator.ECCLevel.Q);
+            using var qrCode = new PngByteQRCode(qrCodeData);
+            var qrCodeBytes = qrCode.GetGraphic(20);
+
+            // Convert to base64
+            var qrCodeBase64 = Convert.ToBase64String(qrCodeBytes);
+
+            return new GenerateQRCodeResponseDto
+            {
+                SubEventId = subEventId,
+                GoogleFormUrl = googleFormUrl,
+                QrCodeBase64 = $"data:image/png;base64,{qrCodeBase64}",
+                QrCodeUrl = googleFormUrl
+            };
+        }
+
+        /// <summary>
+        /// Send email to sub-event attendees based on recipient type
+        /// </summary>
+        public async Task<SendSubEventEmailResponseDto> SendEmailToSubEventAttendeesAsync(
+            int subEventId, SendSubEventEmailDto dto, int currentUserId)
+        {
+            var subEvent = await _unitOfWork.Events.GetByIdWithDetailsAsync(subEventId);
+            if (subEvent == null || subEvent.IsDeleted == true)
+                throw new InvalidOperationException("Sub-event not found");
+
+            if (subEvent.ParentEventId == null)
+                throw new InvalidOperationException("This is not a sub-event");
+
+            // Check permission
+            var permission = await _permissionHelper.CanModifyEventAsync(subEvent, currentUserId);
+            permission.ThrowIfDenied();
+
+            // Get attendees based on recipient type
+            List<string> recipientEmails = new List<string>();
+
+            switch (dto.RecipientType.ToLower())
+            {
+                case "allattendees":
+                    // Get all attendees for this sub-event
+                    var allAttendances = await _unitOfWork.EventAttendances.GetByEventAsync(subEventId);
+                    var allUserIds = allAttendances.Select(a => a.UserId).Distinct().ToList();
+                    var getallUsers = await _unitOfWork.Users.FindAllAsync(u => allUserIds.Contains(u.UserId));
+                    recipientEmails = getallUsers
+                        .Where(u => !string.IsNullOrWhiteSpace(u.Email))
+                        .Select(u => u.Email!)
+                        .Distinct()
+                        .ToList();
+                    break;
+
+                case "checkedinonly":
+                    // Get only checked-in attendees
+                    var checkedInAttendances = await _unitOfWork.EventAttendances.GetByEventAsync(subEventId);
+                    var checkedInUserIds = checkedInAttendances
+                        .Where(a => a.CheckinAt != null)
+                        .Select(a => a.UserId)
+                        .Distinct()
+                        .ToList();
+                    var checkedInUsers = await _unitOfWork.Users.FindAllAsync(u => checkedInUserIds.Contains(u.UserId));
+                    recipientEmails = checkedInUsers
+                        .Where(u => !string.IsNullOrWhiteSpace(u.Email))
+                        .Select(u => u.Email!)
+                        .Distinct()
+                        .ToList();
+                    break;
+
+                case "notcheckedin":
+                    // Get only not checked-in attendees
+                    var notCheckedInAttendances = await _unitOfWork.EventAttendances.GetByEventAsync(subEventId);
+                    var notCheckedInUserIds = notCheckedInAttendances
+                        .Where(a => a.CheckinAt == null)
+                        .Select(a => a.UserId)
+                        .Distinct()
+                        .ToList();
+                    var notCheckedInUsers = await _unitOfWork.Users.FindAllAsync(u => notCheckedInUserIds.Contains(u.UserId));
+                    recipientEmails = notCheckedInUsers
+                        .Where(u => !string.IsNullOrWhiteSpace(u.Email))
+                        .Select(u => u.Email!)
+                        .Distinct()
+                        .ToList();
+                    break;
+
+                case "customlist":
+                    // Use custom email list - REQUIRED when RecipientType is CustomList
+                    if (dto.CustomEmailList == null || dto.CustomEmailList.Count == 0)
+                        throw new InvalidOperationException("CustomEmailList is required when RecipientType is 'CustomList'. Please provide at least one email address.");
+                    
+                    // Validate email format (basic validation)
+                    var invalidEmails = dto.CustomEmailList
+                        .Where(email => string.IsNullOrWhiteSpace(email) || !email.Contains("@"))
+                        .ToList();
+                    
+                    if (invalidEmails.Count > 0)
+                        throw new InvalidOperationException($"Invalid email format(s) in CustomEmailList: {string.Join(", ", invalidEmails)}");
+                    
+                    recipientEmails = dto.CustomEmailList
+                        .Where(email => !string.IsNullOrWhiteSpace(email))
+                        .Select(email => email.Trim())
+                        .Distinct()
+                        .ToList();
+                    break;
+
+                default:
+                    throw new InvalidOperationException($"Invalid RecipientType: {dto.RecipientType}");
+            }
+
+            if (recipientEmails.Count == 0)
+                throw new InvalidOperationException("No recipients found for the selected recipient type");
+
+            // Get sender information (person who is sending the email)
+            var sender = await _unitOfWork.Users.GetByIdAsync(currentUserId);
+            if (sender == null)
+                throw new InvalidOperationException("Sender not found");
+
+            var senderName = sender.FullName ?? "Event Manager";
+
+            // Send emails
+            int successCount = 0;
+            int failureCount = 0;
+            List<string> failedEmails = new List<string>();
+
+            // Get all users by emails to avoid multiple queries
+            var allUsers = await _unitOfWork.Users.GetAllAsync();
+            var userDict = allUsers
+                .Where(u => !string.IsNullOrWhiteSpace(u.Email) && recipientEmails.Contains(u.Email))
+                .ToDictionary(u => u.Email!, u => u);
+
+            foreach (var email in recipientEmails)
+            {
+                try
+                {
+                    // Get user by email
+                    var user = userDict.ContainsKey(email) ? userDict[email] : null;
+                    
+                    var recipientName = user?.FullName ?? email;
+                    var firstName = user?.FullName?.Split(' ').FirstOrDefault() ?? "";
+                    var lastName = user?.FullName?.Split(' ').Skip(1).FirstOrDefault() ?? "";
+
+                    // Process email template with user-specific variables
+                    var processedBody = ProcessEmailTemplate(dto.Body, subEvent, dto.QrCodeBase64, dto.QrCodeUrl, firstName, lastName, senderName);
+                    var processedSubject = ProcessEmailTemplate(dto.Subject, subEvent, dto.QrCodeBase64, dto.QrCodeUrl, firstName, lastName, senderName);
+
+                    await _emailService.SendEmailAsync(email, processedSubject, processedBody, recipientName);
+                    successCount++;
+                }
+                catch (Exception ex)
+                {
+                    failureCount++;
+                    failedEmails.Add(email);
+                    // Log error but continue sending to other recipients
+                    Console.WriteLine($"Failed to send email to {email}: {ex.Message}");
+                }
+            }
+
+            return new SendSubEventEmailResponseDto
+            {
+                SubEventId = subEventId,
+                RecipientType = dto.RecipientType,
+                TotalRecipients = recipientEmails.Count,
+                SuccessCount = successCount,
+                FailureCount = failureCount,
+                FailedEmails = failedEmails.Count > 0 ? failedEmails : null
+            };
+        }
+
+        /// <summary>
+        /// Process email template and replace variables
+        /// </summary>
+        private string ProcessEmailTemplate(string template, Event subEvent, string? qrCodeBase64, string? qrCodeUrl, string firstName = "", string lastName = "", string senderName = "")
+        {
+            var result = template;
+
+            // Replace user-specific variables
+            result = result.Replace("{FirstName}", firstName);
+            result = result.Replace("{LastName}", lastName);
+            
+            // Replace sender name (person who is sending the email)
+            result = result.Replace("{SenderName}", senderName);
+            
+            // Replace event-specific variables
+            result = result.Replace("{EventName}", subEvent.EventName ?? "");
+            result = result.Replace("{Date}", subEvent.StartTime.ToString("dd/MM/yyyy"));
+            result = result.Replace("{Time}", subEvent.StartTime.ToString("HH:mm"));
+            
+            // Location
+            string location = "";
+            if (subEvent.Location != null)
+                location = subEvent.Location.Name ?? "";
+            else if (subEvent.ExternalLocation != null)
+                location = subEvent.ExternalLocation.Name ?? "";
+            result = result.Replace("{Location}", location);
+
+            // QR Code - replace with image tag if base64 is provided
+            if (!string.IsNullOrWhiteSpace(qrCodeBase64))
+            {
+                var qrCodeImageTag = $"<img src=\"{qrCodeBase64}\" alt=\"QR Code\" style=\"max-width: 300px; height: auto;\" />";
+                result = result.Replace("{QRCode}", qrCodeImageTag);
+            }
+            else if (!string.IsNullOrWhiteSpace(qrCodeUrl))
+            {
+                var qrCodeLinkTag = $"<a href=\"{qrCodeUrl}\" target=\"_blank\">Click here to register</a>";
+                result = result.Replace("{QRCode}", qrCodeLinkTag);
+            }
+            else
+            {
+                result = result.Replace("{QRCode}", "");
+            }
+
+            return result;
+        }
+
+        #endregion
     }
 }

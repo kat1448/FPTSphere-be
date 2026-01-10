@@ -123,13 +123,9 @@ namespace WebApi.Controllers
                 {
                     successMessage = "Event created successfully and submitted for Director approval";
                 }
-                else if (userRole == "Director" && result.StatusId == 3) // APPROVED_STATUS_ID
+                else if ((userRole == "Director" || userRole == "Admin") && result.StatusId == 3) // APPROVED_STATUS_ID
                 {
                     successMessage = "Event created successfully and automatically approved";
-                }
-                else if (userRole == "Admin" && result.StatusId == 1) // DRAFT_STATUS_ID
-                {
-                    successMessage = "Event created successfully as Draft. You can submit it for approval when ready.";
                 }
 
                 // Old code:
@@ -861,6 +857,108 @@ namespace WebApi.Controllers
                 return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
             }
         }
+        #endregion
+
+        #region Sub-event Email and QR Code
+
+        /// <summary>
+        /// Generate QR code for sub-event registration form (Google Form URL)
+        /// Frontend must create Google Form first and provide the URL
+        /// </summary>
+        [HttpPost("subevents/{subEventId}/generate-qr")]
+        [Authorize(Roles = "Admin,Event Manager,Director")]
+        public async Task<IActionResult> GenerateQRCodeForSubEvent(int subEventId, [FromBody] GenerateQRCodeDto dto)
+        {
+            try
+            {
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    return BadRequest(ApiResponse<object>.ErrorResult("Invalid data", errors));
+                }
+
+                var result = await _eventService.GenerateQRCodeForSubEventAsync(subEventId, dto);
+                return Ok(ApiResponse<GenerateQRCodeResponseDto>.SuccessResult(result, "QR code generated successfully"));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+
+        /// <summary>
+        /// Send email to sub-event attendees
+        /// Note: SubEventId is taken from URL path parameter, not from request body
+        /// 
+        /// RecipientType options:
+        /// - "AllAttendees": Send to all registered attendees
+        /// - "CheckedInOnly": Send only to checked-in attendees
+        /// - "NotCheckedIn": Send only to not-checked-in attendees
+        /// - "CustomList": Send to custom email list (requires CustomEmailList)
+        /// </summary>
+        [HttpPost("subevents/{subEventId}/send-email")]
+        [Authorize(Roles = "Admin,Event Manager,Director")]
+        public async Task<IActionResult> SendEmailToSubEventAttendees(int subEventId, [FromBody] SendSubEventEmailDto dto)
+        {
+            try
+            {
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    return BadRequest(ApiResponse<object>.ErrorResult("Invalid data", errors));
+                }
+
+                // Validate CustomEmailList when RecipientType is CustomList
+                if (dto.RecipientType.Equals("CustomList", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (dto.CustomEmailList == null || dto.CustomEmailList.Count == 0)
+                    {
+                        return BadRequest(ApiResponse<object>.ErrorResult("CustomEmailList is required when RecipientType is 'CustomList'. Please provide at least one email address."));
+                    }
+                }
+
+                // Parse userId correctly
+                var userIdClaimValue = User.Claims.FirstOrDefault(c => c.Type == "UserId")?.Value
+                                       ?? User.Claims.FirstOrDefault(c => c.Type == "sub")?.Value;
+
+                if (string.IsNullOrWhiteSpace(userIdClaimValue))
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot extract user ID from authenticated user claims"));
+                }
+
+                if (!int.TryParse(userIdClaimValue, out var userId) || userId <= 0)
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult($"Invalid user ID in claims: '{userIdClaimValue}'"));
+                }
+
+                var result = await _eventService.SendEmailToSubEventAttendeesAsync(subEventId, dto, userId);
+                return Ok(ApiResponse<SendSubEventEmailResponseDto>.SuccessResult(result, 
+                    $"Email sent successfully to {result.SuccessCount} out of {result.TotalRecipients} recipients"));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+
         #endregion
     }
 }
