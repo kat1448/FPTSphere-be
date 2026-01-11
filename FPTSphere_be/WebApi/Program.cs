@@ -35,6 +35,8 @@ builder.Services.AddScoped<IEventResourceRepository, EventResourceRepository>();
 builder.Services.AddScoped<IEventApprovalRepository, EventApprovalRepository>();
 builder.Services.AddScoped<IEventLogRepository, EventLogRepository>();
 builder.Services.AddScoped<IEventTaskRepository, EventTaskRepository>();
+builder.Services.AddScoped<IAttendanceSyncLogRepository, AttendanceSyncLogRepository>();
+builder.Services.AddScoped<IAttendanceRawRecordRepository, AttendanceRawRecordRepository>();
 
 
 // AutoMapper
@@ -78,6 +80,8 @@ builder.Services.AddScoped<IEmailService, EmailService>();
 // Cloudinary File Service
 builder.Services.Configure<CloudinarySettings>(builder.Configuration.GetSection("CloudinarySettings"));
 builder.Services.AddScoped<IFileService, FileService>();
+builder.Services.AddHttpClient(); // For IHttpClientFactory
+builder.Services.AddScoped<IParticipantService, ParticipantService>();
 
 // JWT Authentication
 builder.Services.AddAuthentication(options =>

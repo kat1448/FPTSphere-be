@@ -132,4 +132,16 @@ public partial class Event
     [ForeignKey("TypeId")]
     [InverseProperty("Events")]
     public virtual EventType? Type { get; set; }
+
+    [InverseProperty("Event")]
+    public virtual ICollection<AttendanceSyncLog> AttendanceSyncLogs { get; set; } = new List<AttendanceSyncLog>();
+
+    [InverseProperty("Event")]
+    public virtual ICollection<AttendanceRawRecord> AttendanceRawRecords { get; set; } = new List<AttendanceRawRecord>();
+
+    [InverseProperty("SubEvent")]
+    public virtual ICollection<AttendanceSyncLog> AttendanceSyncLogsAsSubEvent { get; set; } = new List<AttendanceSyncLog>();
+
+    [InverseProperty("SubEvent")]
+    public virtual ICollection<AttendanceRawRecord> AttendanceRawRecordsAsSubEvent { get; set; } = new List<AttendanceRawRecord>();
 }

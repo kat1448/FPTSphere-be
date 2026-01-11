@@ -71,4 +71,7 @@ public partial class User
 
     [InverseProperty("User")]
     public virtual ICollection<StudentFeedbackHeader> StudentFeedbackHeaders { get; set; } = new List<StudentFeedbackHeader>();
+
+    [InverseProperty("User")]
+    public virtual ICollection<AttendanceRawRecord> AttendanceRawRecords { get; set; } = new List<AttendanceRawRecord>();
 }
