@@ -31,6 +31,7 @@ namespace BusinessLayer.Services.Implementations
         private readonly IEventTaskService _eventTaskService;
         private readonly IEmailService _emailService;
         private readonly IEventTaskRepository _eventTaskRepository;
+        private readonly IFileService _fileService;
         private const int DRAFT_STATUS_ID = 1;
         private const int PENDING_STATUS_ID = 2;
         private const int APPROVED_STATUS_ID = 3;
@@ -47,7 +48,8 @@ namespace BusinessLayer.Services.Implementations
             IEventTaskService eventTaskService,
             IEventTaskRepository eventTaskRepository,
             IEmailService emailService,
-            EventFilterHelper filterHelper)
+            EventFilterHelper filterHelper,
+            IFileService fileService)
         {
             _unitOfWork = unitOfWork;
             _mapper = mapper;
@@ -57,6 +59,7 @@ namespace BusinessLayer.Services.Implementations
             _emailService = emailService;
             _eventTaskService = eventTaskService;
             _eventTaskRepository = eventTaskRepository;
+            _fileService = fileService;
         }
 
         #region Auto status update
@@ -236,7 +239,28 @@ namespace BusinessLayer.Services.Implementations
                 initialStatusId = APPROVED_STATUS_ID;
             }
 
+            // Upload banner file to Cloudinary if provided
+            string? bannerUrl = null;
+            if (dto.BannerUrl != null && dto.BannerUrl.Length > 0)
+            {
+                try
+                {
+                    var uploadResult = await _fileService.UploadFileAsync(
+                        dto.BannerUrl,
+                        folder: "events/banners",
+                        transformation: "w_1200,h_600,c_fill,q_auto,f_auto"
+                    );
+                    bannerUrl = uploadResult.SecureUrl;
+                }
+                catch (Exception ex)
+                {
+                    throw new InvalidOperationException($"Failed to upload banner file: {ex.Message}");
+                }
+            }
+
             var ev = _mapper.Map<Event>(dto);
+            // Set BannerUrl from uploaded file URL
+            ev.BannerUrl = bannerUrl;
             ev.CreatedBy = currentUserId;
             ev.StatusId = initialStatusId;
             ev.CreatedAt = DateTime.Now;
@@ -316,7 +340,34 @@ namespace BusinessLayer.Services.Implementations
             if (!validation.IsSuccess)
                 throw new InvalidOperationException(validation.ErrorMessage);
 
+            // Save existing BannerUrl before mapping
+            var existingBannerUrl = ev.BannerUrl;
+
+            // Upload banner file to Cloudinary if provided
+            // Only update BannerUrl if a new file is uploaded
+            string? newBannerUrl = null;
+            if (dto.BannerUrl != null && dto.BannerUrl.Length > 0)
+            {
+                try
+                {
+                    var uploadResult = await _fileService.UploadFileAsync(
+                        dto.BannerUrl,
+                        folder: "events/banners",
+                        transformation: "w_1200,h_600,c_fill,q_auto,f_auto"
+                    );
+                    newBannerUrl = uploadResult.SecureUrl;
+                }
+                catch (Exception ex)
+                {
+                    throw new InvalidOperationException($"Failed to upload banner file: {ex.Message}");
+                }
+            }
+
+            // Map other fields from DTO (BannerUrl will be handled separately)
             _mapper.Map(dto, ev);
+            
+            // Set BannerUrl: use new URL if file was uploaded, otherwise keep existing
+            ev.BannerUrl = newBannerUrl ?? existingBannerUrl;
             ev.UpdatedAt = DateTime.Now;
 
             await _unitOfWork.Events.UpdateAsync(ev);

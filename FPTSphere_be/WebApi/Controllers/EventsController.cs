@@ -21,8 +21,13 @@ namespace WebApi.Controllers
     {
         private readonly IEventService _eventService;
         private readonly IEmailService _emailService;
+        private readonly IFileService _fileService;
 
-        public EventsController(IEventService eventService) => _eventService = eventService;
+        public EventsController(IEventService eventService, IFileService fileService)
+        {
+            _eventService = eventService;
+            _fileService = fileService;
+        }
 
         // ==================== MAIN EVENT ENDPOINTS ====================
 
@@ -81,7 +86,8 @@ namespace WebApi.Controllers
         [HttpPost]
         // Fixed: Only Manager and Director can create events
         [Authorize(Roles = "Admin,Event Manager,Director")]
-        public async Task<IActionResult> CreateEvent([FromBody] CreateEventDto dto)
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> CreateEvent([FromForm] CreateEventDto dto)
         {
             try
             {
@@ -111,6 +117,7 @@ namespace WebApi.Controllers
                 {
                     return Unauthorized(ApiResponse<object>.ErrorResult($"Invalid user ID in claims: '{userIdClaimValue}'"));
                 }
+
                 // Old code:
                 // var result = await _eventService.CreateAsync(dto, userId);
                 // Fixed:
@@ -147,7 +154,8 @@ namespace WebApi.Controllers
 
         [HttpPut("{id}")]
         [Authorize(Roles = "Admin,Event Manager")]
-        public async Task<IActionResult> UpdateEvent(int id, [FromBody] UpdateEventDto dto)
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UpdateEvent(int id, [FromForm] UpdateEventDto dto)
         {
             try
             {
@@ -160,7 +168,21 @@ namespace WebApi.Controllers
                     return BadRequest(ApiResponse<object>.ErrorResult("Invalid data", errors));
                 }
 
-                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                // Fixed: Parse userId correctly (same as CreateEvent)
+                var userIdClaimValue = User.Claims.FirstOrDefault(c => c.Type == "UserId")?.Value
+                                       ?? User.Claims.FirstOrDefault(c => c.Type == "sub")?.Value;
+
+                if (string.IsNullOrWhiteSpace(userIdClaimValue))
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot extract user ID from authenticated user claims"));
+                }
+
+                if (!int.TryParse(userIdClaimValue, out var userId) || userId <= 0)
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult($"Invalid user ID in claims: '{userIdClaimValue}'"));
+                }
+
+                // Service will handle file upload from IFormFile in DTO
                 var result = await _eventService.UpdateAsync(id, dto, userId);
 
                 if (result == null) return NotFound(ApiResponse<object>.ErrorResult("Event not found"));
