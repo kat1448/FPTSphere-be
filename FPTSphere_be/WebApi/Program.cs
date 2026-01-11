@@ -72,9 +72,12 @@ builder.Services.AddScoped<IEventTaskService, EventTaskService>();
 builder.Services.AddScoped<EventValidationHelper>();
 builder.Services.AddScoped<EventPermissionHelper>();
 builder.Services.AddScoped<EventFilterHelper>();
-// Phải có đủ 2 dòng này:
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
 builder.Services.AddScoped<IEmailService, EmailService>();
+
+// Cloudinary File Service
+builder.Services.Configure<CloudinarySettings>(builder.Configuration.GetSection("CloudinarySettings"));
+builder.Services.AddScoped<IFileService, FileService>();
 
 // JWT Authentication
 builder.Services.AddAuthentication(options =>
