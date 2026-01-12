@@ -84,7 +84,7 @@ namespace WebApi.Controllers
         }
 
         [HttpPost]
-        // Fixed: Only Manager and Director can create events
+        // Fixed: Only Manager, Director, and Admin can create events (Staff cannot create events)
         [Authorize(Roles = "Admin,Event Manager,Director")]
         [Consumes("multipart/form-data")]
         public async Task<IActionResult> CreateEvent([FromForm] CreateEventDto dto)
@@ -269,10 +269,13 @@ namespace WebApi.Controllers
 
         /// <summary>
         /// Create a new sub-event under a main event
+        /// Staff can create sub-events with pending status (requires Manager approval)
+        /// Supports banner image upload via multipart/form-data
         /// </summary>
-        [HttpPost("{id}/subevents")]
-        [Authorize(Roles = "Admin,Event Manager")]
-        public async Task<IActionResult> CreateSubEvent(int id, [FromBody] CreateSubEventDto dto)
+        [HttpPost("{eventId}/subevents")]
+        [Authorize(Roles = "Admin,Event Manager,Staff")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> CreateSubEvent(int eventId, [FromForm] CreateSubEventDto dto)
         {
             try
             {
@@ -299,12 +302,25 @@ namespace WebApi.Controllers
                     return Unauthorized(ApiResponse<object>.ErrorResult($"Invalid user ID in claims: '{userIdClaimValue}'"));
                 }
 
-                var result = await _eventService.CreateSubEventAsync(id, dto, userId);
+                // Get user role to determine initial status
+                var userRole = User.FindFirst(ClaimTypes.Role)?.Value ?? "";
+                var result = await _eventService.CreateSubEventAsync(eventId, dto, userId, userRole);
+
+                // Determine success message based on role and status
+                string successMessage = "Sub-event created successfully";
+                if (userRole == "Staff" && result.StatusId == 2) // PENDING_STATUS_ID
+                {
+                    successMessage = "Sub-event created successfully and submitted for Manager approval";
+                }
+                else if ((userRole == "Event Manager" || userRole == "Director" || userRole == "Admin") && result.StatusId == 3) // APPROVED_STATUS_ID
+                {
+                    successMessage = "Sub-event created successfully and automatically approved";
+                }
 
                 return CreatedAtAction(
                     nameof(GetEventById),
-                    new { id = result.EventId },
-                    ApiResponse<SubEventDto>.SuccessResult(result, "Sub-event created successfully"));
+                    new { eventId = result.EventId },
+                    ApiResponse<SubEventDto>.SuccessResult(result, successMessage));
             }
             catch (UnauthorizedAccessException ex)
             {
@@ -917,17 +933,18 @@ namespace WebApi.Controllers
 
         /// <summary>
         /// Send email to sub-event attendees
-        /// Note: SubEventId is taken from URL path parameter, not from request body
+        /// Note: SubEventId is taken from URL path parameter
         /// 
-        /// RecipientType options:
-        /// - "AllAttendees": Send to all registered attendees
-        /// - "CheckedInOnly": Send only to checked-in attendees
-        /// - "NotCheckedIn": Send only to not-checked-in attendees
-        /// - "CustomList": Send to custom email list (requires CustomEmailList)
+        /// Features:
+        /// - Upload image file (will be uploaded to Cloudinary and embedded in email)
+        /// - Import Excel file (only Email column will be extracted)
+        /// - Use custom email list (optional, can be used instead of Excel file)
+        /// - View list of imported emails before sending
         /// </summary>
         [HttpPost("subevents/{subEventId}/send-email")]
         [Authorize(Roles = "Admin,Event Manager,Director")]
-        public async Task<IActionResult> SendEmailToSubEventAttendees(int subEventId, [FromBody] SendSubEventEmailDto dto)
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> SendEmailToSubEventAttendees(int subEventId, [FromForm] SendSubEventEmailDto dto)
         {
             try
             {
@@ -940,13 +957,11 @@ namespace WebApi.Controllers
                     return BadRequest(ApiResponse<object>.ErrorResult("Invalid data", errors));
                 }
 
-                // Validate CustomEmailList when RecipientType is CustomList
-                if (dto.RecipientType.Equals("CustomList", StringComparison.OrdinalIgnoreCase))
+                // Validate that at least one email source is provided
+                if ((dto.ExcelFile == null || dto.ExcelFile.Length == 0) && 
+                    (dto.CustomEmailList == null || dto.CustomEmailList.Count == 0))
                 {
-                    if (dto.CustomEmailList == null || dto.CustomEmailList.Count == 0)
-                    {
-                        return BadRequest(ApiResponse<object>.ErrorResult("CustomEmailList is required when RecipientType is 'CustomList'. Please provide at least one email address."));
-                    }
+                    return BadRequest(ApiResponse<object>.ErrorResult("Please provide either an Excel file or a custom email list"));
                 }
 
                 // Parse userId correctly
@@ -963,7 +978,7 @@ namespace WebApi.Controllers
                     return Unauthorized(ApiResponse<object>.ErrorResult($"Invalid user ID in claims: '{userIdClaimValue}'"));
                 }
 
-                var result = await _eventService.SendEmailToSubEventAttendeesAsync(subEventId, dto, userId);
+                var result = await _eventService.SendEmailToSubEventAttendeesAsync(subEventId, dto, userId, _fileService);
                 return Ok(ApiResponse<SendSubEventEmailResponseDto>.SuccessResult(result, 
                     $"Email sent successfully to {result.SuccessCount} out of {result.TotalRecipients} recipients"));
             }

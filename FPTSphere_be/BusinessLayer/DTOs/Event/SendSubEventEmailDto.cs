@@ -5,6 +5,7 @@ namespace BusinessLayer.DTOs.Event
 {
     /// <summary>
     /// DTO for sending email to sub-event attendees
+    /// Updated: Removed QR code and recipientType, added image upload and Excel import
     /// </summary>
     public class SendSubEventEmailDto
     {
@@ -16,30 +17,19 @@ namespace BusinessLayer.DTOs.Event
         public string Body { get; set; } = null!;
 
         /// <summary>
-        /// Recipient type: "AllAttendees", "CheckedInOnly", "NotCheckedIn", "CustomList"
-        /// - AllAttendees: All registered attendees for this sub-event
-        /// - CheckedInOnly: Only attendees who have checked in
-        /// - NotCheckedIn: Only attendees who have not checked in
-        /// - CustomList: Custom list of emails (requires CustomEmailList)
+        /// Image file to be uploaded to Cloudinary and embedded in email (optional)
         /// </summary>
-        [Required(ErrorMessage = "Recipient type is required")]
-        public string RecipientType { get; set; } = null!;
+        public Microsoft.AspNetCore.Http.IFormFile? ImageFile { get; set; }
 
         /// <summary>
-        /// Custom email list (REQUIRED when RecipientType is "CustomList", ignored otherwise)
-        /// Must contain at least one valid email address
+        /// Excel file containing email addresses (only Email column will be extracted)
+        /// </summary>
+        public Microsoft.AspNetCore.Http.IFormFile? ExcelFile { get; set; }
+
+        /// <summary>
+        /// Custom email list (optional, can be used instead of Excel file)
         /// </summary>
         public List<string>? CustomEmailList { get; set; }
-
-        /// <summary>
-        /// QR Code image as base64 string (optional, if QR code is already generated)
-        /// </summary>
-        public string? QrCodeBase64 { get; set; }
-
-        /// <summary>
-        /// QR Code URL (optional, if QR code URL is provided)
-        /// </summary>
-        public string? QrCodeUrl { get; set; }
     }
 
     /// <summary>
@@ -48,11 +38,11 @@ namespace BusinessLayer.DTOs.Event
     public class SendSubEventEmailResponseDto
     {
         public int SubEventId { get; set; }
-        public string RecipientType { get; set; } = null!;
         public int TotalRecipients { get; set; }
         public int SuccessCount { get; set; }
         public int FailureCount { get; set; }
         public List<string>? FailedEmails { get; set; }
+        public List<string>? ImportedEmails { get; set; }
+        public string? ImageUrl { get; set; }
     }
 }
-

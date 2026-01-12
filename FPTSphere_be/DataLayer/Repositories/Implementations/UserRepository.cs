@@ -79,5 +79,13 @@ namespace DataLayer.Repositories.Implementations
                 .OrderBy(u => u.FullName)
                 .ToListAsync();
         }
+
+        /// Override GetAllAsync to always include Role navigation property
+        public override async Task<IEnumerable<User>> GetAllAsync()
+        {
+            return await _dbSet
+                .Include(u => u.Role)
+                .ToListAsync();
+        }
     }
 }

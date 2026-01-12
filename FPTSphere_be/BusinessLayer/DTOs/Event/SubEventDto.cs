@@ -4,6 +4,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
 
 namespace BusinessLayer.DTOs.Event
 {
@@ -43,6 +44,7 @@ namespace BusinessLayer.DTOs.Event
 
     /// <summary>
     /// DTO for creating Sub-Event
+    /// Updated: BannerUrl is now IFormFile for file upload support
     /// </summary>
     public class CreateSubEventDto
     {
@@ -53,9 +55,10 @@ namespace BusinessLayer.DTOs.Event
         [MaxLength(4000, ErrorMessage = "Description cannot exceed 4000 characters")]
         public string? Description { get; set; }
 
-        [MaxLength(255, ErrorMessage = "Banner URL cannot exceed 255 characters")]
-        [Url(ErrorMessage = "Invalid URL format")]
-        public string? BannerUrl { get; set; }
+        /// <summary>
+        /// Banner image file (will be uploaded to Cloudinary)
+        /// </summary>
+        public IFormFile? BannerUrl { get; set; }
 
         [Required(ErrorMessage = "Start time is required")]
         public DateTime StartTime { get; set; }

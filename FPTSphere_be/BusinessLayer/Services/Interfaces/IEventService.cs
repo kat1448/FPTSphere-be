@@ -25,7 +25,7 @@ namespace BusinessLayer.Services.Interfaces
 
         //SUb-event
         Task<List<SubEventDto>> GetSubEventsAsync(int parentEventId);
-        Task<SubEventDto> CreateSubEventAsync(int parentEventId, CreateSubEventDto dto, int currentUserId);
+        Task<SubEventDto> CreateSubEventAsync(int parentEventId, CreateSubEventDto dto, int currentUserId, string? userRole = null);
         Task<SubEventDto?> UpdateSubEventAsync(int subEventId, UpdateSubEventDto dto, int currentUserId);
         Task<bool> DeleteSubEventAsync(int subEventId, int currentUserId);
 
@@ -53,6 +53,6 @@ namespace BusinessLayer.Services.Interfaces
 
         // Sub-event email and QR code
         Task<GenerateQRCodeResponseDto> GenerateQRCodeForSubEventAsync(int subEventId, GenerateQRCodeDto dto);
-        Task<SendSubEventEmailResponseDto> SendEmailToSubEventAttendeesAsync(int subEventId, SendSubEventEmailDto dto, int currentUserId);
+        Task<SendSubEventEmailResponseDto> SendEmailToSubEventAttendeesAsync(int subEventId, SendSubEventEmailDto dto, int currentUserId, IFileService fileService);
     }
 }

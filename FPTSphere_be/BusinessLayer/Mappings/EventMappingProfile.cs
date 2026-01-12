@@ -101,6 +101,7 @@ namespace BusinessLayer.Mappings
                 .ForMember(d => d.CreatedBy, opt => opt.Ignore())
                 .ForMember(d => d.StatusId, opt => opt.Ignore())
                 .ForMember(d => d.ParentEventId, opt => opt.Ignore())
+                .ForMember(d => d.BannerUrl, opt => opt.Ignore()) // BannerUrl is handled separately (uploaded to Cloudinary)
                 .ForMember(d => d.ExpectedAttendees, opt => opt.Ignore())
                 .ForMember(d => d.EstimatedCost, opt => opt.Ignore())
                 .ForMember(d => d.TemplateId, opt => opt.Ignore())
