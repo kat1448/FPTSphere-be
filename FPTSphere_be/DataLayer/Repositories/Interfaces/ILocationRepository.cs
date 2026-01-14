@@ -17,6 +17,8 @@ namespace DataLayer.Repositories.Interfaces
             DateTime startTime,
             DateTime endTime,
             int? minCapacity = null,
-            string? building = null);
+            string? building = null,
+            int? ignoreEventId = null,
+            int? ignoreParentEventId = null);
     }
 }

@@ -22,11 +22,16 @@ namespace WebApi.Controllers
         private readonly IEventService _eventService;
         private readonly IEmailService _emailService;
         private readonly IFileService _fileService;
+        private readonly ILocationBookingService _locationBookingService;
 
-        public EventsController(IEventService eventService, IFileService fileService)
+        public EventsController(
+            IEventService eventService,
+            IFileService fileService,
+            ILocationBookingService locationBookingService)
         {
             _eventService = eventService;
             _fileService = fileService;
+            _locationBookingService = locationBookingService;
         }
 
         // ==================== MAIN EVENT ENDPOINTS ====================
@@ -76,6 +81,35 @@ namespace WebApi.Controllers
                 var ev = await _eventService.GetEventByIdAsync(id);
                 if (ev == null) return NotFound(ApiResponse<object>.ErrorResult("Event not found"));
                 return Ok(ApiResponse<EventDto>.SuccessResult(ev, "Event retrieved"));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+
+        /// <summary>
+        /// Dùng để hiển thị thông tin phòng đã được book trong UI chọn location.
+        /// </summary>
+        [HttpGet("location-bookings")]
+        [Authorize(Roles = "Admin,Event Manager,Director")]
+        public async Task<IActionResult> GetLocationBookings(
+            [FromQuery] int locationId,
+            [FromQuery] DateTime startTime,
+            [FromQuery] DateTime endTime,
+            [FromQuery] int? ignoreEventId = null,
+            [FromQuery] int? ignoreParentEventId = null)
+        {
+            try
+            {
+                var events = await _locationBookingService.GetLocationBookingsAsync(
+                    locationId, startTime, endTime, ignoreEventId, ignoreParentEventId);
+                return Ok(ApiResponse<List<EventDto>>.SuccessResult(
+                    events, $"Found {events.Count} bookings for location {locationId}"));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
             }
             catch (Exception ex)
             {

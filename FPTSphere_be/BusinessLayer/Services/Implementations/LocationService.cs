@@ -152,14 +152,23 @@ namespace BusinessLayer.Services.Implementations
         {
             return await _unitOfWork.Locations.NameExistsAsync(name, excludeId);
         }
+
         public async Task<List<LocationDto>> GetAvailableLocationsAsync(
-             DateTime startTime,
-             DateTime endTime,
-             int? minCapacity = null,
-             string? building = null)
+            DateTime startTime,
+            DateTime endTime,
+            int? minCapacity = null,
+            string? building = null,
+            int? ignoreEventId = null,
+            int? ignoreParentEventId = null)
         {
+            if (endTime <= startTime)
+                throw new ArgumentException("End time must be after start time");
+
+            if (startTime < DateTime.Now.AddHours(-1))
+                throw new ArgumentException("Start time cannot be in the past");
+
             var locations = await _unitOfWork.Locations.GetAvailableLocationsAsync(
-                startTime, endTime, minCapacity, building);
+                startTime, endTime, minCapacity, building, ignoreEventId, ignoreParentEventId);
 
             return _mapper.Map<List<LocationDto>>(locations);
         }
