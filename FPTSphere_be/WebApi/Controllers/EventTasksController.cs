@@ -184,5 +184,82 @@ namespace WebApi.Controllers
                 return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
             }
         }
+
+        // GET TASKS ASSIGNED BY CURRENT USER (Manager xem task đã giao)
+        [HttpGet("my-assigned-tasks")]
+        [Authorize(Roles = "Admin,Event Manager,Director")]
+        public async Task<IActionResult> GetMyAssignedTasks()
+        {
+            try
+            {
+                var userIdString = User.Claims.FirstOrDefault(c => c.Type == "UserId")?.Value
+                    ?? User.Claims.FirstOrDefault(c => c.Type == "sub")?.Value
+                    ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+                if (string.IsNullOrEmpty(userIdString))
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot detect current user"));
+
+                var userId = int.Parse(userIdString);
+                var tasks = await _eventTaskService.GetTasksAssignedByUserAsync(userId);
+                return Ok(ApiResponse<List<EventTaskDto>>.SuccessResult(
+                    tasks,
+                    $"Retrieved {tasks.Count} tasks assigned by you"));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+
+        // UPDATE TASK (Manager update task đã giao)
+        [HttpPut("{taskId}")]
+        [Authorize(Roles = "Admin,Event Manager,Director")]
+        public async Task<IActionResult> UpdateTask(int taskId, [FromBody] UpdateEventTaskDto dto)
+        {
+            try
+            {
+                var updated = await _eventTaskService.UpdateTaskAsync(taskId, dto, User);
+                return Ok(ApiResponse<EventTaskDto>.SuccessResult(updated, "Task updated successfully"));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+
+        // DELETE TASK (Manager delete task đã giao)
+        [HttpDelete("{taskId}")]
+        [Authorize(Roles = "Admin,Event Manager,Director")]
+        public async Task<IActionResult> DeleteTask(int taskId)
+        {
+            try
+            {
+                var result = await _eventTaskService.DeleteTaskAsync(taskId, User);
+                if (!result)
+                    return NotFound(ApiResponse<object>.ErrorResult("Task not found"));
+
+                return Ok(ApiResponse<object>.SuccessResult(null, "Task deleted successfully"));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
     }
 }

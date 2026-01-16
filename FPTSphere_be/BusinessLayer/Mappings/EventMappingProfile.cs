@@ -93,6 +93,8 @@ namespace BusinessLayer.Mappings
                .ForMember(d => d.StatusName, opt => opt.MapFrom(s => s.Status != null ? s.Status.StatusName : string.Empty))
                .ForMember(d => d.CategoryName, opt => opt.MapFrom(s => s.Category != null ? s.Category.CategoryName : null))
                .ForMember(d => d.TypeName, opt => opt.MapFrom(s => s.Type != null ? s.Type.TypeName : null))
+               .ForMember(d => d.ExpectedAttendees, opt => opt.MapFrom(s => s.ExpectedAttendees))
+               .ForMember(d => d.EstimatedCost, opt => opt.MapFrom(s => s.EstimatedCost))
                .ForMember(d => d.CreatedAt, opt => opt.MapFrom(s => s.CreatedAt.HasValue ? s.CreatedAt.Value : DateTime.Now))
                .ForMember(d => d.UpdatedAt, opt => opt.MapFrom(s => s.UpdatedAt));
 
@@ -133,6 +135,7 @@ namespace BusinessLayer.Mappings
                 .ForMember(d => d.CreatedBy, opt => opt.Ignore())
                 .ForMember(d => d.StatusId, opt => opt.Ignore())
                 .ForMember(d => d.ParentEventId, opt => opt.Ignore())
+                .ForMember(d => d.BannerUrl, opt => opt.Ignore()) // BannerUrl is handled separately (uploaded to Cloudinary)
                 .ForMember(d => d.ExpectedAttendees, opt => opt.Ignore())
                 .ForMember(d => d.EstimatedCost, opt => opt.Ignore())
                 .ForMember(d => d.TemplateId, opt => opt.Ignore())

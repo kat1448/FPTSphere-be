@@ -455,15 +455,15 @@ namespace BusinessLayer.Services.Implementations
 
             // Fixed: New logic for sub-event creation
             // - Staff creates sub-event with PENDING status (needs Manager approval)
-            // - Manager creates sub-event with APPROVED status (auto-approved)
+            // - Manager creates sub-event with PENDING status (needs Director approval) ⭐
             // - Director creates sub-event with APPROVED status (auto-approved)
             // - Admin creates sub-event with APPROVED status (auto-approved)
             int initialStatusId = DRAFT_STATUS_ID;
-            if (userRole == "Staff")
+            if (userRole == "Staff" || userRole == "Event Manager")
             {
                 initialStatusId = PENDING_STATUS_ID;
             }
-            else if (userRole == "Event Manager" || userRole == "Director" || userRole == "Admin")
+            else if (userRole == "Director" || userRole == "Admin")
             {
                 initialStatusId = APPROVED_STATUS_ID;
             }
@@ -495,6 +495,9 @@ namespace BusinessLayer.Services.Implementations
             subEvent.StatusId = initialStatusId;
             subEvent.CreatedAt = DateTime.Now;
             subEvent.IsDeleted = false;
+            // Set ExpectedAttendees and EstimatedCost from DTO
+            subEvent.ExpectedAttendees = dto.ExpectedAttendees;
+            subEvent.EstimatedCost = dto.EstimatedCost;
 
             // Auto-fill CategoryId and TypeId from parent event if not provided
             if (!subEvent.CategoryId.HasValue && parent.CategoryId.HasValue)
@@ -581,8 +584,38 @@ namespace BusinessLayer.Services.Implementations
             if (!validation.IsSuccess)
                 throw new InvalidOperationException(validation.ErrorMessage);
 
+            // Save existing BannerUrl before mapping
+            var existingBannerUrl = subEvent.BannerUrl;
+
+            // Upload banner file to Cloudinary if provided
+            // Only update BannerUrl if a new file is uploaded
+            string? newBannerUrl = null;
+            if (dto.BannerUrl != null && dto.BannerUrl.Length > 0)
+            {
+                try
+                {
+                    var uploadResult = await _fileService.UploadFileAsync(
+                        dto.BannerUrl,
+                        folder: "sub-events/banners",
+                        transformation: "w_1200,h_600,c_fill,q_auto,f_auto"
+                    );
+                    newBannerUrl = uploadResult.SecureUrl ?? uploadResult.Url;
+                }
+                catch (Exception ex)
+                {
+                    throw new InvalidOperationException($"Failed to upload banner file: {ex.Message}");
+                }
+            }
+
+            // Map other fields from DTO (BannerUrl will be handled separately)
             _mapper.Map(dto, subEvent);
+            
+            // Set BannerUrl: use new URL if file was uploaded, otherwise keep existing
+            subEvent.BannerUrl = newBannerUrl ?? existingBannerUrl;
             subEvent.UpdatedAt = DateTime.Now;
+            // Set ExpectedAttendees and EstimatedCost from DTO
+            subEvent.ExpectedAttendees = dto.ExpectedAttendees;
+            subEvent.EstimatedCost = dto.EstimatedCost;
 
             // Validate category exists if provided
             if (subEvent.CategoryId.HasValue)

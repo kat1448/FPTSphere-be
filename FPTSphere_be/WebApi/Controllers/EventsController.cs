@@ -342,11 +342,14 @@ namespace WebApi.Controllers
 
                 // Determine success message based on role and status
                 string successMessage = "Sub-event created successfully";
-                if (userRole == "Staff" && result.StatusId == 2) // PENDING_STATUS_ID
+                if ((userRole == "Staff" || userRole == "Event Manager") && result.StatusId == 2) // PENDING_STATUS_ID
                 {
-                    successMessage = "Sub-event created successfully and submitted for Manager approval";
+                    if (userRole == "Staff")
+                        successMessage = "Sub-event created successfully and submitted for Manager approval";
+                    else if (userRole == "Event Manager")
+                        successMessage = "Sub-event created successfully and submitted for Director approval";
                 }
-                else if ((userRole == "Event Manager" || userRole == "Director" || userRole == "Admin") && result.StatusId == 3) // APPROVED_STATUS_ID
+                else if ((userRole == "Director" || userRole == "Admin") && result.StatusId == 3) // APPROVED_STATUS_ID
                 {
                     successMessage = "Sub-event created successfully and automatically approved";
                 }
@@ -372,10 +375,12 @@ namespace WebApi.Controllers
 
         /// <summary>
         /// Update a sub-event
+        /// Supports banner image upload via multipart/form-data
         /// </summary>
         [HttpPut("subevents/{subEventId}")]
         [Authorize(Roles = "Admin,Event Manager")]
-        public async Task<IActionResult> UpdateSubEvent(int subEventId, [FromBody] UpdateSubEventDto dto)
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UpdateSubEvent(int subEventId, [FromForm] UpdateSubEventDto dto)
         {
             try
             {

@@ -19,7 +19,7 @@ namespace BusinessLayer.DTOs.EventTask
 
         [Required]
         [StringLength(50)]
-        public string Status { get; set; } = "Pending"; // Default: Pending
+        public string Status { get; set; } = "Not Started"; // Default: Chưa bắt đầu
 
         [Required]
         public DateTime StartDate { get; set; }
