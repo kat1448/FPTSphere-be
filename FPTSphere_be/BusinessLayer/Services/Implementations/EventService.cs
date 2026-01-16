@@ -1507,5 +1507,245 @@ namespace BusinessLayer.Services.Implementations
         }
 
         #endregion
+
+        #region Staff Email
+
+        /// <summary>
+        /// Upload Excel file with attendees list for Staff
+        /// File will be saved to Cloudinary and email addresses will be extracted
+        /// </summary>
+        public async Task<StaffUploadExcelResponseDto> UploadExcelAndExtractEmailsAsync(
+            Microsoft.AspNetCore.Http.IFormFile excelFile, IFileService fileService)
+        {
+            // Validate file type
+            var allowedExtensions = new[] { ".xlsx", ".xls" };
+            var fileExtension = System.IO.Path.GetExtension(excelFile.FileName).ToLower();
+            if (!allowedExtensions.Contains(fileExtension))
+            {
+                throw new InvalidOperationException("Only Excel files (.xlsx, .xls) are allowed");
+            }
+
+            // Upload Excel file to Cloudinary
+            string excelFileUrl;
+            string excelFilePublicId;
+            try
+            {
+                var uploadResult = await fileService.UploadFileAsync(
+                    excelFile,
+                    folder: "staff-attendees",
+                    transformation: null // Keep original Excel file
+                );
+                excelFileUrl = uploadResult.SecureUrl ?? uploadResult.Url;
+                excelFilePublicId = uploadResult.PublicId ?? "";
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"Failed to upload Excel file: {ex.Message}");
+            }
+
+            // Extract emails from Excel file
+            List<string> extractedEmails = new List<string>();
+            try
+            {
+                using var stream = new MemoryStream();
+                await excelFile.CopyToAsync(stream);
+                stream.Position = 0;
+
+                using var package = new OfficeOpenXml.ExcelPackage(stream);
+                var worksheet = package.Workbook.Worksheets.FirstOrDefault();
+                if (worksheet == null)
+                {
+                    throw new InvalidOperationException("Excel file does not contain any worksheets.");
+                }
+
+                // Find Email column with flexible matching
+                int emailColumnIndex = -1;
+                int partialMatchColumnIndex = -1;
+                var emailKeywords = new[] { "email", "gmail", "e-mail", "e mail", "email address", "mail", "correo", "thư điện tử" };
+                
+                // First pass: Look for exact match "email" (highest priority)
+                for (int col = 1; col <= worksheet.Dimension.End.Column; col++)
+                {
+                    var headerValue = worksheet.Cells[1, col].Value?.ToString()?.Trim();
+                    if (string.IsNullOrWhiteSpace(headerValue))
+                        continue;
+
+                    var headerLower = headerValue.ToLower();
+                    
+                    // Exact match has highest priority
+                    if (headerLower == "email")
+                    {
+                        emailColumnIndex = col;
+                        break;
+                    }
+                }
+
+                // Second pass: If no exact match, look for partial matches
+                if (emailColumnIndex == -1)
+                {
+                    for (int col = 1; col <= worksheet.Dimension.End.Column; col++)
+                    {
+                        var headerValue = worksheet.Cells[1, col].Value?.ToString()?.Trim();
+                        if (string.IsNullOrWhiteSpace(headerValue))
+                            continue;
+
+                        var headerLower = headerValue.ToLower();
+                        
+                        // Check for partial match with email keywords
+                        foreach (var keyword in emailKeywords)
+                        {
+                            if (headerLower.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                            {
+                                partialMatchColumnIndex = col;
+                                break;
+                            }
+                        }
+                        
+                        if (partialMatchColumnIndex != -1)
+                            break;
+                    }
+                    
+                    emailColumnIndex = partialMatchColumnIndex;
+                }
+
+                if (emailColumnIndex == -1)
+                {
+                    throw new InvalidOperationException(
+                        "Email column not found in Excel file. " +
+                        "Please ensure the first row contains a column with name containing 'Email', 'Gmail', 'E-mail', 'Mail', or similar keywords.");
+                }
+
+                // Extract emails from Email column (skip header row)
+                var emails = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                for (int row = 2; row <= worksheet.Dimension.End.Row; row++)
+                {
+                    var emailCell = worksheet.Cells[row, emailColumnIndex].Value?.ToString()?.Trim();
+                    if (!string.IsNullOrWhiteSpace(emailCell) && emailCell.Contains("@"))
+                    {
+                        emails.Add(emailCell);
+                    }
+                }
+
+                extractedEmails = emails.ToList();
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException($"Error processing Excel file: {ex.Message}");
+            }
+
+            if (extractedEmails.Count == 0)
+            {
+                throw new InvalidOperationException("No valid email addresses found in Excel file.");
+            }
+
+            return new StaffUploadExcelResponseDto
+            {
+                ExcelFileUrl = excelFileUrl,
+                ExcelFilePublicId = excelFilePublicId,
+                ExtractedEmails = extractedEmails,
+                EmailCount = extractedEmails.Count
+            };
+        }
+
+        /// <summary>
+        /// Send email to attendees for Staff
+        /// Uses list of emails provided from Excel upload
+        /// </summary>
+        public async Task<StaffSendEmailResponseDto> SendEmailToAttendeesAsync(
+            StaffSendEmailDto dto, int currentUserId)
+        {
+            // Validate email list
+            if (dto.EmailList == null || dto.EmailList.Count == 0)
+            {
+                throw new InvalidOperationException("Email list is required");
+            }
+
+            // Clean and validate emails
+            var recipientEmails = dto.EmailList
+                .Where(email => !string.IsNullOrWhiteSpace(email) && email.Contains("@"))
+                .Select(email => email.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (recipientEmails.Count == 0)
+            {
+                throw new InvalidOperationException("No valid email addresses found in the email list.");
+            }
+
+            // Get sender information
+            var sender = await _unitOfWork.Users.GetByIdAsync(currentUserId);
+            if (sender == null)
+                throw new InvalidOperationException("Sender not found");
+
+            var senderName = sender.FullName ?? "Staff";
+
+            // Send emails
+            int successCount = 0;
+            int failureCount = 0;
+            List<string> failedEmails = new List<string>();
+            List<string> sentEmails = new List<string>();
+
+            // Get all users by emails to avoid multiple queries
+            var allUsers = await _unitOfWork.Users.GetAllAsync();
+            var userDict = allUsers
+                .Where(u => !string.IsNullOrWhiteSpace(u.Email) && recipientEmails.Contains(u.Email))
+                .ToDictionary(u => u.Email!, u => u);
+
+            foreach (var email in recipientEmails)
+            {
+                try
+                {
+                    // Get user by email
+                    var user = userDict.ContainsKey(email) ? userDict[email] : null;
+                    
+                    var recipientName = user?.FullName ?? email;
+                    var firstName = user?.FullName?.Split(' ').FirstOrDefault() ?? "";
+                    var lastName = user?.FullName?.Split(' ').Skip(1).FirstOrDefault() ?? "";
+
+                    // Process email template with user-specific variables
+                    var processedBody = ProcessStaffEmailTemplate(dto.Body, firstName, lastName, senderName);
+                    var processedSubject = ProcessStaffEmailTemplate(dto.Subject, firstName, lastName, senderName);
+
+                    await _emailService.SendEmailAsync(email, processedSubject, processedBody, recipientName);
+                    successCount++;
+                    sentEmails.Add(email);
+                }
+                catch (Exception ex)
+                {
+                    failureCount++;
+                    failedEmails.Add(email);
+                    // Log error but continue sending to other recipients
+                    Console.WriteLine($"Failed to send email to {email}: {ex.Message}");
+                }
+            }
+
+            return new StaffSendEmailResponseDto
+            {
+                TotalRecipients = recipientEmails.Count,
+                SuccessCount = successCount,
+                FailureCount = failureCount,
+                FailedEmails = failedEmails.Count > 0 ? failedEmails : null,
+                SentEmails = sentEmails.Count > 0 ? sentEmails : null
+            };
+        }
+
+        /// <summary>
+        /// Process email template for Staff and replace variables
+        /// </summary>
+        private string ProcessStaffEmailTemplate(string template, string firstName = "", string lastName = "", string senderName = "")
+        {
+            var result = template;
+
+            // Replace user-specific variables
+            result = result.Replace("{FirstName}", firstName);
+            result = result.Replace("{LastName}", lastName);
+            
+            // Replace sender name
+            result = result.Replace("{SenderName}", senderName);
+
+            return result;
+        }
+
+        #endregion
     }
 }

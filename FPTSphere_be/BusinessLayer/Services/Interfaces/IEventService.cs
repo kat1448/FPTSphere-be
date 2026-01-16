@@ -54,5 +54,9 @@ namespace BusinessLayer.Services.Interfaces
         // Sub-event email and QR code
         Task<GenerateQRCodeResponseDto> GenerateQRCodeForSubEventAsync(int subEventId, GenerateQRCodeDto dto);
         Task<SendSubEventEmailResponseDto> SendEmailToSubEventAttendeesAsync(int subEventId, SendSubEventEmailDto dto, int currentUserId, IFileService fileService);
+
+        // Staff email
+        Task<StaffUploadExcelResponseDto> UploadExcelAndExtractEmailsAsync(Microsoft.AspNetCore.Http.IFormFile excelFile, IFileService fileService);
+        Task<StaffSendEmailResponseDto> SendEmailToAttendeesAsync(StaffSendEmailDto dto, int currentUserId);
     }
 }

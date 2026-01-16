@@ -37,7 +37,7 @@ namespace WebApi.Controllers
         // ==================== MAIN EVENT ENDPOINTS ====================
 
         [HttpGet]
-        [Authorize(Roles = "Admin,Event Manager,Director")]
+        [Authorize(Roles = "Admin,Event Manager,Director, Staff")]
         public async Task<IActionResult> GetEvents(
             [FromQuery] int page = 1, [FromQuery] int pageSize = 10,
             [FromQuery] int? statusId = null, [FromQuery] DateTime? startDate = null, [FromQuery] DateTime? endDate = null,
@@ -73,7 +73,7 @@ namespace WebApi.Controllers
         }
 
         [HttpGet("{id}")]
-        [Authorize(Roles = "Admin,Event Manager,Director")]
+        [Authorize(Roles = "Admin,Event Manager,Director, Staff")]
         public async Task<IActionResult> GetEventById(int id)
         {
             try
@@ -1024,6 +1024,97 @@ namespace WebApi.Controllers
             catch (UnauthorizedAccessException ex)
             {
                 return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+
+        #endregion
+
+        #region Staff Email
+
+        /// <summary>
+        /// Upload Excel file with attendees list for Staff
+        /// File will be saved to Cloudinary and email addresses will be extracted
+        /// </summary>
+        [HttpPost("staff/upload-excel")]
+        [AllowAnonymous]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UploadExcelAndExtractEmails([FromForm] StaffUploadExcelDto dto)
+        {
+            try
+            {
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    return BadRequest(ApiResponse<object>.ErrorResult("Invalid data", errors));
+                }
+
+                if (dto.ExcelFile == null || dto.ExcelFile.Length == 0)
+                {
+                    return BadRequest(ApiResponse<object>.ErrorResult("Excel file is required"));
+                }
+
+                var result = await _eventService.UploadExcelAndExtractEmailsAsync(dto.ExcelFile, _fileService);
+                return Ok(ApiResponse<StaffUploadExcelResponseDto>.SuccessResult(
+                    result,
+                    $"Excel file uploaded successfully. Extracted {result.EmailCount} email addresses."));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+
+        /// <summary>
+        /// Send email to attendees for Staff
+        /// Uses list of emails provided from Excel upload
+        /// </summary>
+        [HttpPost("staff/send-email")]
+        [AllowAnonymous]
+        public async Task<IActionResult> SendEmailToAttendees([FromBody] StaffSendEmailDto dto)
+        {
+            try
+            {
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    return BadRequest(ApiResponse<object>.ErrorResult("Invalid data", errors));
+                }
+
+                // Parse userId correctly
+                var userIdClaimValue = User.Claims.FirstOrDefault(c => c.Type == "UserId")?.Value
+                                       ?? User.Claims.FirstOrDefault(c => c.Type == "sub")?.Value;
+
+                if (string.IsNullOrWhiteSpace(userIdClaimValue))
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot extract user ID from authenticated user claims"));
+                }
+
+                if (!int.TryParse(userIdClaimValue, out var userId) || userId <= 0)
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult($"Invalid user ID in claims: '{userIdClaimValue}'"));
+                }
+
+                var result = await _eventService.SendEmailToAttendeesAsync(dto, userId);
+                return Ok(ApiResponse<StaffSendEmailResponseDto>.SuccessResult(result, 
+                    $"Email sent successfully to {result.SuccessCount} out of {result.TotalRecipients} recipients"));
             }
             catch (InvalidOperationException ex)
             {
