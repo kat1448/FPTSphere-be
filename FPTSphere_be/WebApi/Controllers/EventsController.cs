@@ -767,7 +767,7 @@ namespace WebApi.Controllers
 
         // Get approval history
         [HttpGet("{id}/approval-history")]
-        [Authorize(Roles = "Director,Admin,Event Manager")]
+        [AllowAnonymous]
         public async Task<IActionResult> GetApprovalHistory(int id)
         {
             try
@@ -943,7 +943,7 @@ namespace WebApi.Controllers
         /// Frontend must create Google Form first and provide the URL
         /// </summary>
         [HttpPost("subevents/{subEventId}/generate-qr")]
-        [Authorize(Roles = "Admin,Event Manager,Director")]
+        [AllowAnonymous]
         public async Task<IActionResult> GenerateQRCodeForSubEvent(int subEventId, [FromBody] GenerateQRCodeDto dto)
         {
             try
@@ -981,7 +981,7 @@ namespace WebApi.Controllers
         /// - View list of imported emails before sending
         /// </summary>
         [HttpPost("subevents/{subEventId}/send-email")]
-        [Authorize(Roles = "Admin,Event Manager,Director")]
+        [AllowAnonymous]
         [Consumes("multipart/form-data")]
         public async Task<IActionResult> SendEmailToSubEventAttendees(int subEventId, [FromForm] SendSubEventEmailDto dto)
         {
