@@ -23,9 +23,11 @@ namespace BusinessLayer.Services.Interfaces
         Task<bool> DeleteAsync(int id);
         Task<bool> NameExistsAsync(string name, int? excludeId = null);
         Task<List<LocationDto>> GetAvailableLocationsAsync(
-             DateTime startTime,
-             DateTime endTime,
-             int? minCapacity = null,
-             string? building = null);
+            DateTime startTime,
+            DateTime endTime,
+            int? minCapacity = null,
+            string? building = null,
+            int? ignoreEventId = null,
+            int? ignoreParentEventId = null);
     }
 }

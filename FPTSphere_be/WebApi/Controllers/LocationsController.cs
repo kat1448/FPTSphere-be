@@ -109,12 +109,17 @@ namespace WebApi.Controllers
         }
 
         /// Get available locations for event (checks time conflicts)
+        /// Optional params:
+        ///  - ignoreEventId: bỏ qua chính event đang cập nhật
+        ///  - ignoreParentEventId: bỏ qua parent event khi tạo/đổi sub-event
         [HttpGet("available")]
         public async Task<IActionResult> GetAvailable(
             [FromQuery] DateTime startTime,
             [FromQuery] DateTime endTime,
             [FromQuery] int? minCapacity = null,
-            [FromQuery] string? building = null)
+            [FromQuery] string? building = null,
+            [FromQuery] int? ignoreEventId = null,
+            [FromQuery] int? ignoreParentEventId = null)
         {
             try
             {
@@ -125,7 +130,7 @@ namespace WebApi.Controllers
                     return BadRequest(ApiResponse<object>.ErrorResult("Cannot book locations in the past"));
 
                 var locations = await _locationService.GetAvailableLocationsAsync(
-                    startTime, endTime, minCapacity, building);
+                    startTime, endTime, minCapacity, building, ignoreEventId, ignoreParentEventId);
 
                 var message = $"Found {locations.Count} available location(s)";
                 if (minCapacity.HasValue)

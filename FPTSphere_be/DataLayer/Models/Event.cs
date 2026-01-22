@@ -62,6 +62,12 @@ public partial class Event
     [Column("estimated_cost", TypeName = "decimal(15, 2)")]
     public decimal? EstimatedCost { get; set; }
 
+    [Column("category_id")]
+    public int? CategoryId { get; set; }
+
+    [Column("type_id")]
+    public int? TypeId { get; set; }
+
     [InverseProperty("Event")]
     public virtual ICollection<AttendanceToken> AttendanceTokens { get; set; } = new List<AttendanceToken>();
 
@@ -118,4 +124,24 @@ public partial class Event
     [ForeignKey("TemplateId")]
     [InverseProperty("Events")]
     public virtual FeedbackTemplate? Template { get; set; }
+
+    [ForeignKey("CategoryId")]
+    [InverseProperty("Events")]
+    public virtual EventCategory? Category { get; set; }
+
+    [ForeignKey("TypeId")]
+    [InverseProperty("Events")]
+    public virtual EventType? Type { get; set; }
+
+    [InverseProperty("Event")]
+    public virtual ICollection<AttendanceSyncLog> AttendanceSyncLogs { get; set; } = new List<AttendanceSyncLog>();
+
+    [InverseProperty("Event")]
+    public virtual ICollection<AttendanceRawRecord> AttendanceRawRecords { get; set; } = new List<AttendanceRawRecord>();
+
+    [InverseProperty("SubEvent")]
+    public virtual ICollection<AttendanceSyncLog> AttendanceSyncLogsAsSubEvent { get; set; } = new List<AttendanceSyncLog>();
+
+    [InverseProperty("SubEvent")]
+    public virtual ICollection<AttendanceRawRecord> AttendanceRawRecordsAsSubEvent { get; set; } = new List<AttendanceRawRecord>();
 }

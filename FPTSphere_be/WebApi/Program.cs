@@ -28,11 +28,15 @@ builder.Services.AddScoped<IResourceRepository, ResourceRepository>();
 builder.Services.AddScoped<IExternalLocationRepository, ExternalLocationRepository>();
 builder.Services.AddScoped<IEventStatusRepository, EventStatusRepository>();
 builder.Services.AddScoped<IEventRepository, EventRepository>();
+builder.Services.AddScoped<IEventCategoryRepository, EventCategoryRepository>();
+builder.Services.AddScoped<IEventTypeRepository, EventTypeRepository>();
 builder.Services.AddScoped<IExternalServiceRepository, ExternalServiceRepository>();
 builder.Services.AddScoped<IEventResourceRepository, EventResourceRepository>();
 builder.Services.AddScoped<IEventApprovalRepository, EventApprovalRepository>();
 builder.Services.AddScoped<IEventLogRepository, EventLogRepository>();
 builder.Services.AddScoped<IEventTaskRepository, EventTaskRepository>();
+builder.Services.AddScoped<IAttendanceSyncLogRepository, AttendanceSyncLogRepository>();
+builder.Services.AddScoped<IAttendanceRawRecordRepository, AttendanceRawRecordRepository>();
 
 
 // AutoMapper
@@ -44,10 +48,13 @@ builder.Services.AddAutoMapper(
     typeof(ResourceMappingProfile),
     typeof(EventStatusMappingProfile),
     typeof(EventMappingProfile),
+    typeof(EventCategoryMappingProfile),
+    typeof(EventTypeMappingProfile),
     typeof(ExternalServiceMappingProfile),
     typeof(EventResourceMappingProfile),
     typeof(ExternalLocationMappingProfile),
-    typeof(EventApprovalMappingProfile));
+    typeof(EventApprovalMappingProfile),
+    typeof(EventTaskMappingProfile));
 
 
 // Services
@@ -55,19 +62,27 @@ builder.Services.AddScoped<IGoogleAuthService, GoogleAuthService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<ILocationService, LocationService>();
+builder.Services.AddScoped<ILocationBookingService, LocationBookingService>();
 builder.Services.AddScoped<IResourceService, ResourceService>();
 builder.Services.AddScoped<IExternalLocationService, ExternalLocationService>();
 builder.Services.AddScoped<IEventStatusService, EventStatusService>();
 builder.Services.AddScoped<IEventService, EventService>();
+builder.Services.AddScoped<IEventCategoryService, EventCategoryService>();
+builder.Services.AddScoped<IEventTypeService, EventTypeService>();
 builder.Services.AddScoped<IExternalServiceService, ExternalServiceService>();
 builder.Services.AddScoped<IEventResourceService, EventResourceService>();
 builder.Services.AddScoped<IEventTaskService, EventTaskService>();
 builder.Services.AddScoped<EventValidationHelper>();
 builder.Services.AddScoped<EventPermissionHelper>();
 builder.Services.AddScoped<EventFilterHelper>();
-// Phải có đủ 2 dòng này:
 builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("EmailSettings"));
 builder.Services.AddScoped<IEmailService, EmailService>();
+
+// Cloudinary File Service
+builder.Services.Configure<CloudinarySettings>(builder.Configuration.GetSection("CloudinarySettings"));
+builder.Services.AddScoped<IFileService, FileService>();
+builder.Services.AddHttpClient(); // For IHttpClientFactory
+builder.Services.AddScoped<IParticipantService, ParticipantService>();
 
 // JWT Authentication
 builder.Services.AddAuthentication(options =>
@@ -88,6 +103,32 @@ builder.Services.AddAuthentication(options =>
         IssuerSigningKey = new SymmetricSecurityKey(
             Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"])),
         ClockSkew = TimeSpan.Zero
+    };
+
+    // Old behavior: JwtBearer mặc định chỉ chấp nhận header "Authorization: Bearer {token}"
+    // Fixed: chấp nhận cả "Bearer {token}" và "{token}" (không prefix), để Swagger chỉ cần nhập token trần
+    options.Events = new JwtBearerEvents
+    {
+        OnMessageReceived = context =>
+        {
+            var authHeader = context.Request.Headers["Authorization"].FirstOrDefault();
+
+            if (!string.IsNullOrWhiteSpace(authHeader))
+            {
+                // Nếu header bắt đầu bằng "Bearer ", cắt prefix
+                if (authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                {
+                    context.Token = authHeader.Substring("Bearer ".Length).Trim();
+                }
+                else
+                {
+                    // Nếu chỉ gửi token trần (không Bearer), vẫn chấp nhận
+                    context.Token = authHeader.Trim();
+                }
+            }
+
+            return Task.CompletedTask;
+        }
     };
 });
 

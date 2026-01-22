@@ -17,6 +17,9 @@ namespace BusinessLayer.Helpers
         private const string ADMIN_ROLE = "Admin";
         private const string EVENT_MANAGER_ROLE = "Event Manager";
         private const string DIRECTOR_ROLE = "Director";
+        // Old code: (no STAFF_ROLE constant)
+        // Fixed:
+        private const string STAFF_ROLE = "Staff";
 
         // Status IDs as constants
         private const int DRAFT_STATUS_ID = 1;
@@ -64,11 +67,80 @@ namespace BusinessLayer.Helpers
 
         /// <summary>
         /// Check if user can delete event
-        /// Same rules as modify, but extracted for clarity
+        /// Rules:
+        /// - Owner can delete their own events (if status allows)
+        /// - Admin and Event Manager can delete any event (if status allows)
+        /// - Cannot delete Completed events or events that have already ended
+        /// - Can delete: Draft, Pending, Rejected, Cancelled
+        /// - Cannot delete: Approved (if in progress), In Progress, Completed
         /// </summary>
         public async Task<PermissionResult> CanDeleteEventAsync(Event ev, int currentUserId)
         {
-            return await CanModifyEventAsync(ev, currentUserId);
+            // Cannot delete completed events
+            if (ev.StatusId == COMPLETED_STATUS_ID)
+            {
+                return PermissionResult.Deny("Cannot delete completed events");
+            }
+
+            // Cannot delete events that have already ended (unless cancelled/rejected)
+            if (ev.EndTime < DateTime.Now && ev.StatusId != CANCELLED_STATUS_ID && ev.StatusId != REJECTED_STATUS_ID)
+            {
+                return PermissionResult.Deny("Cannot delete events that have already ended");
+            }
+
+            // Cannot delete events that are in progress
+            if (ev.StatusId == INPROGRESS_STATUS_ID)
+            {
+                return PermissionResult.Deny("Cannot delete events that are currently in progress");
+            }
+
+            // Owner can delete their own events (if status allows)
+            if (ev.CreatedBy == currentUserId)
+            {
+                // Owner can delete: Draft, Pending, Rejected, Cancelled
+                if (ev.StatusId == DRAFT_STATUS_ID || 
+                    ev.StatusId == PENDING_STATUS_ID || 
+                    ev.StatusId == REJECTED_STATUS_ID || 
+                    ev.StatusId == CANCELLED_STATUS_ID)
+                {
+                    return PermissionResult.Allow();
+                }
+                
+                // Owner cannot delete Approved events (must cancel first)
+                if (ev.StatusId == APPROVED_STATUS_ID)
+                {
+                    return PermissionResult.Deny("Cannot delete approved events. Please cancel the event instead.");
+                }
+            }
+
+            // Admin and Event Manager can delete any event (if status allows)
+            var currentUser = await _unitOfWork.Users.GetByIdAsync(currentUserId);
+            if (currentUser == null)
+            {
+                return PermissionResult.Deny("User not found");
+            }
+
+            var roleName = currentUser.Role?.RoleName ?? "";
+            
+            if (roleName == ADMIN_ROLE || roleName == EVENT_MANAGER_ROLE)
+            {
+                // Admin/Event Manager can delete: Draft, Pending, Rejected, Cancelled, Approved (if not started)
+                if (ev.StatusId == DRAFT_STATUS_ID || 
+                    ev.StatusId == PENDING_STATUS_ID || 
+                    ev.StatusId == REJECTED_STATUS_ID || 
+                    ev.StatusId == CANCELLED_STATUS_ID ||
+                    (ev.StatusId == APPROVED_STATUS_ID && ev.StartTime > DateTime.Now))
+                {
+                    return PermissionResult.Allow();
+                }
+                
+                if (ev.StatusId == APPROVED_STATUS_ID && ev.StartTime <= DateTime.Now)
+                {
+                    return PermissionResult.Deny("Cannot delete approved events that have started. Please cancel the event instead.");
+                }
+            }
+
+            return PermissionResult.Deny("You don't have permission to delete this event");
         }
 
         /// <summary>
@@ -98,8 +170,12 @@ namespace BusinessLayer.Helpers
 
         /// <summary>
         /// Check if user can approve/reject event
-        /// Rules:
+        /// Old code rules:
         /// - Only Director can approve/reject
+        /// - Event must be in Pending status
+        /// Fixed rules:
+        /// - Director can approve any pending event
+        /// - Event Manager can approve events created by Staff
         /// - Event must be in Pending status
         /// </summary>
         public async Task<PermissionResult> CanApproveEventAsync(Event ev, int currentUserId)
@@ -113,12 +189,32 @@ namespace BusinessLayer.Helpers
 
             // Check role
             var currentUser = await _unitOfWork.Users.GetByIdAsync(currentUserId);
-            if (currentUser?.Role?.RoleName != DIRECTOR_ROLE && currentUser?.Role?.RoleName != ADMIN_ROLE)
+            // Old code:
+            // if (currentUser?.Role?.RoleName != DIRECTOR_ROLE && currentUser?.Role?.RoleName != ADMIN_ROLE)
+            // {
+            //     return PermissionResult.Deny("Only Director or Admin can approve events");
+            // }
+            // return PermissionResult.Allow();
+            // Fixed:
+            var currentUserRole = currentUser?.Role?.RoleName ?? "";
+
+            // Director can approve any pending event
+            if (currentUserRole == DIRECTOR_ROLE)
             {
-                return PermissionResult.Deny("Only Director or Admin can approve events");
+                return PermissionResult.Allow();
             }
 
+            // Event Manager can approve events created by Staff
+            if (currentUserRole == EVENT_MANAGER_ROLE)
+            {
+                var creator = await _unitOfWork.Users.GetByIdAsync(ev.CreatedBy);
+                if (creator?.Role?.RoleName == STAFF_ROLE)
+                {
             return PermissionResult.Allow();
+                }
+            }
+
+            return PermissionResult.Deny("You don't have permission to approve this event");
         }
 
         /// <summary>
@@ -205,6 +301,14 @@ namespace BusinessLayer.Helpers
         public async Task<bool> IsDirectorAsync(int userId)
         {
             return await HasRoleAsync(userId, DIRECTOR_ROLE);
+        }
+
+        /// <summary>
+        /// Check if user is Staff
+        /// </summary>
+        public async Task<bool> IsStaffAsync(int userId)
+        {
+            return await HasRoleAsync(userId, STAFF_ROLE);
         }
 
         #endregion

@@ -15,11 +15,24 @@ namespace DataLayer.Repositories.Implementations
         public UserRepository(EventDbContext context) : base(context)
         {
         }
+
+        // Override GetByIdAsync to always load Role navigation property
+        public override async Task<User?> GetByIdAsync(int id)
+        {
+            return await _dbSet
+                .Include(u => u.Role)
+                .FirstOrDefaultAsync(u => u.UserId == id);
+        }
         public async Task<User?> GetByEmailAsync(string email)
         {
             return await _dbSet
                 .Include(u => u.Role)
-                .FirstOrDefaultAsync(u => u.Email == email);
+
+                // Old code:
+                // .FirstOrDefaultAsync(u => u.Email == email);
+
+                // Fixed:
+                .FirstOrDefaultAsync(u => u.Email.ToLower() == email.ToLower());
         }
 
         public async Task<User?> GetByGoogleIdAsync(string googleId)
@@ -64,6 +77,14 @@ namespace DataLayer.Repositories.Implementations
                 .Include(u => u.Role)
                 .Where(u => u.IsAuthorized == true)
                 .OrderBy(u => u.FullName)
+                .ToListAsync();
+        }
+
+        /// Override GetAllAsync to always include Role navigation property
+        public override async Task<IEnumerable<User>> GetAllAsync()
+        {
+            return await _dbSet
+                .Include(u => u.Role)
                 .ToListAsync();
         }
     }

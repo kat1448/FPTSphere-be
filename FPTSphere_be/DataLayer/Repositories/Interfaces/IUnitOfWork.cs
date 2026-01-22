@@ -25,6 +25,10 @@ namespace DataLayer.Repositories.Interfaces
         IEventLogRepository EventLogs { get; }
         IEventInvitationRepository EventInvitations { get; }
         IEventAttendanceRepository EventAttendances { get; }
+        IEventCategoryRepository EventCategories { get; }
+        IEventTypeRepository EventTypes { get; }
+        IAttendanceSyncLogRepository AttendanceSyncLogs { get; }
+        IAttendanceRawRecordRepository AttendanceRawRecords { get; }
 
     }
 }

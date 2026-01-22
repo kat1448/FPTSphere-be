@@ -36,6 +36,10 @@ public partial class EventDbContext : DbContext
 
     public virtual DbSet<EventTask> EventTasks { get; set; }
 
+    public virtual DbSet<EventCategory> EventCategories { get; set; }
+
+    public virtual DbSet<EventType> EventTypes { get; set; }
+
     public virtual DbSet<ExternalLocation> ExternalLocations { get; set; }
 
     public virtual DbSet<ExternalService> ExternalServices { get; set; }
@@ -57,6 +61,10 @@ public partial class EventDbContext : DbContext
     public virtual DbSet<SystemRole> SystemRoles { get; set; }
 
     public virtual DbSet<User> Users { get; set; }
+
+    public virtual DbSet<AttendanceSyncLog> AttendanceSyncLogs { get; set; }
+
+    public virtual DbSet<AttendanceRawRecord> AttendanceRawRecords { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -94,6 +102,20 @@ public partial class EventDbContext : DbContext
                 .HasConstraintName("FK__Events__status_i__7F2BE32F");
 
             entity.HasOne(d => d.Template).WithMany(p => p.Events).HasConstraintName("FK_Events_FeedbackTemplates");
+
+            entity.HasOne(d => d.Category).WithMany(p => p.Events).HasConstraintName("FK_Events_EventCategories");
+
+            entity.HasOne(d => d.Type).WithMany(p => p.Events).HasConstraintName("FK_Events_EventTypes");
+        });
+
+        modelBuilder.Entity<EventCategory>(entity =>
+        {
+            entity.HasKey(e => e.CategoryId).HasName("PK__EventCategories__CategoryId");
+        });
+
+        modelBuilder.Entity<EventType>(entity =>
+        {
+            entity.HasKey(e => e.TypeId).HasName("PK__EventTypes__TypeId");
         });
 
         modelBuilder.Entity<EventAiresult>(entity =>
@@ -193,9 +215,19 @@ public partial class EventDbContext : DbContext
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK__EventTask__assig__01142BA1");
 
+            entity.HasOne(d => d.AssignByNavigation).WithMany(p => p.EventTasksAssignedBy)
+                .HasForeignKey(d => d.AssignBy)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK__EventTask__assign_by__");
+
             entity.HasOne(d => d.Event).WithMany(p => p.EventTasks)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK__EventTask__event__02084FDA");
+
+            entity.HasOne(d => d.ParentTask).WithMany(p => p.SubTasks)
+                .HasForeignKey(d => d.ParentTaskId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK__EventTask__parent_task__");
         });
 
         modelBuilder.Entity<ExternalLocation>(entity =>
@@ -299,6 +331,44 @@ public partial class EventDbContext : DbContext
             entity.HasOne(d => d.Role).WithMany(p => p.Users)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK__Users__role_id__09A971A2");
+        });
+
+        modelBuilder.Entity<AttendanceSyncLog>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("PK_AttendanceSyncLogs");
+
+            entity.Property(e => e.SyncedAt).HasDefaultValueSql("(getdate())");
+
+            entity.HasOne(d => d.Event).WithMany(p => p.AttendanceSyncLogs)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_AttendanceSyncLogs_Events");
+
+            entity.HasOne(d => d.SubEvent).WithMany(p => p.AttendanceSyncLogsAsSubEvent)
+                .HasForeignKey(d => d.SubEventId)
+                .OnDelete(DeleteBehavior.NoAction)
+                .HasConstraintName("FK_AttendanceSyncLogs_SubEvents");
+        });
+
+        modelBuilder.Entity<AttendanceRawRecord>(entity =>
+        {
+            entity.HasKey(e => e.RawId).HasName("PK_AttendanceRawRecords");
+
+            entity.Property(e => e.SyncedAt).HasDefaultValueSql("(getdate())");
+            entity.Property(e => e.IsGuest).HasDefaultValue(true);
+
+            entity.HasOne(d => d.Event).WithMany(p => p.AttendanceRawRecords)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_AttendanceRawRecords_Events");
+
+            entity.HasOne(d => d.SubEvent).WithMany(p => p.AttendanceRawRecordsAsSubEvent)
+                .HasForeignKey(d => d.SubEventId)
+                .OnDelete(DeleteBehavior.NoAction)
+                .HasConstraintName("FK_AttendanceRawRecords_SubEvents");
+
+            entity.HasOne(d => d.User).WithMany(p => p.AttendanceRawRecords)
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.SetNull)
+                .HasConstraintName("FK_AttendanceRawRecords_Users");
         });
 
         OnModelCreatingPartial(modelBuilder);

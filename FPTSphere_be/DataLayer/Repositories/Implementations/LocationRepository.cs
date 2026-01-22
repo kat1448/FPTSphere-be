@@ -49,10 +49,12 @@ namespace DataLayer.Repositories.Implementations
             return await query.AnyAsync();
         }
         public async Task<List<Location>> GetAvailableLocationsAsync(
-      DateTime startTime,
-      DateTime endTime,
-      int? minCapacity = null,
-      string? building = null)
+            DateTime startTime,
+            DateTime endTime,
+            int? minCapacity = null,
+            string? building = null,
+            int? ignoreEventId = null,
+            int? ignoreParentEventId = null)
         {
             // 1️⃣ Các trạng thái CHIẾM PHÒNG
             var blockingStatuses = new[] { 2, 3, 4 };
@@ -80,12 +82,15 @@ namespace DataLayer.Repositories.Implementations
 
             var locations = await query.ToListAsync();
 
-            // 5️⃣ Loại các phòng bị trùng thời gian
+            // Loại các phòng bị trùng thời gian
             var availableLocations = locations
                 .Where(location =>
                     !location.Events.Any(evt =>
-                        evt.StartTime < endTime &&
-                        evt.EndTime > startTime
+                        // Bỏ qua chính event đang sửa hoặc parent event (khi tạo sub-event)
+                        (ignoreEventId.HasValue && evt.EventId == ignoreEventId.Value) ||
+                        (ignoreParentEventId.HasValue && evt.EventId == ignoreParentEventId.Value)
+                            ? false
+                            : evt.StartTime < endTime && evt.EndTime > startTime
                     )
                 )
                 .ToList();

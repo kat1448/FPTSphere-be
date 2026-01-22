@@ -56,6 +56,9 @@ public partial class User
     [InverseProperty("AssignedToNavigation")]
     public virtual ICollection<EventTask> EventTasks { get; set; } = new List<EventTask>();
 
+    [InverseProperty("AssignByNavigation")]
+    public virtual ICollection<EventTask> EventTasksAssignedBy { get; set; } = new List<EventTask>();
+
     [InverseProperty("CreatedByNavigation")]
     public virtual ICollection<Event> Events { get; set; } = new List<Event>();
 
@@ -68,4 +71,7 @@ public partial class User
 
     [InverseProperty("User")]
     public virtual ICollection<StudentFeedbackHeader> StudentFeedbackHeaders { get; set; } = new List<StudentFeedbackHeader>();
+
+    [InverseProperty("User")]
+    public virtual ICollection<AttendanceRawRecord> AttendanceRawRecords { get; set; } = new List<AttendanceRawRecord>();
 }

@@ -25,10 +25,22 @@ namespace BusinessLayer.Services.Implementations
         {
             try
             {
+                // Remove spaces from password (Gmail App Password should not have spaces)
+                var cleanPassword = _emailSettings.Password?.Replace(" ", "")?.Trim() ?? string.Empty;
+                
+                if (string.IsNullOrWhiteSpace(cleanPassword))
+                {
+                    throw new InvalidOperationException("Email password is not configured");
+                }
+
+                // Configure SMTP client with proper settings for Gmail
                 using var smtpClient = new SmtpClient(_emailSettings.SmtpServer, _emailSettings.SmtpPort)
                 {
-                    Credentials = new NetworkCredential(_emailSettings.SenderEmail, _emailSettings.Password),
-                    EnableSsl = true
+                    Credentials = new NetworkCredential(_emailSettings.SenderEmail, cleanPassword),
+                    EnableSsl = true,
+                    UseDefaultCredentials = false,
+                    DeliveryMethod = SmtpDeliveryMethod.Network,
+                    Timeout = 30000 // 30 seconds timeout
                 };
 
                 var mailMessage = new MailMessage
@@ -53,9 +65,23 @@ namespace BusinessLayer.Services.Implementations
 
                 Console.WriteLine($"✅ Email sent successfully to: {toEmail}");
             }
+            catch (SmtpException smtpEx)
+            {
+                var errorMessage = $"SMTP Error: {smtpEx.Message}";
+                if (smtpEx.InnerException != null)
+                {
+                    errorMessage += $" Inner: {smtpEx.InnerException.Message}";
+                }
+                Console.WriteLine($"❌ Failed to send email to {toEmail}: {errorMessage}");
+                Console.WriteLine($"   SMTP Server: {_emailSettings.SmtpServer}:{_emailSettings.SmtpPort}");
+                Console.WriteLine($"   Sender Email: {_emailSettings.SenderEmail}");
+                throw new InvalidOperationException($"Failed to send email to {toEmail}. Please check SMTP configuration. Error: {smtpEx.Message}", smtpEx);
+            }
             catch (Exception ex)
             {
                 Console.WriteLine($"❌ Failed to send email to {toEmail}: {ex.Message}");
+                Console.WriteLine($"   SMTP Server: {_emailSettings.SmtpServer}:{_emailSettings.SmtpPort}");
+                Console.WriteLine($"   Sender Email: {_emailSettings.SenderEmail}");
                 throw;
             }
         }

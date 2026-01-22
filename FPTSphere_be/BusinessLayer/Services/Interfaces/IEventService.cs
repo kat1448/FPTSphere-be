@@ -16,13 +16,16 @@ namespace BusinessLayer.Services.Interfaces
     {
         Task<PagedResult<EventDto>> GetEventsAsync(int page, int pageSize, EventFilterDto? filter, string sortBy, bool sortDescending);
         Task<EventDto?> GetEventByIdAsync(int id);
-        Task<EventDto> CreateAsync(CreateEventDto dto, int currentUserId);
+        // Old code:
+        // Task<EventDto> CreateAsync(CreateEventDto dto, int currentUserId);
+        // Fixed:
+        Task<EventDto> CreateAsync(CreateEventDto dto, int currentUserId, string? userRole = null);
         Task<EventDto?> UpdateAsync(int id, UpdateEventDto dto, int currentUserId);
         Task<bool> DeleteAsync(int id, int currentUserId);
 
         //SUb-event
         Task<List<SubEventDto>> GetSubEventsAsync(int parentEventId);
-        Task<SubEventDto> CreateSubEventAsync(int parentEventId, CreateSubEventDto dto, int currentUserId);
+        Task<SubEventDto> CreateSubEventAsync(int parentEventId, CreateSubEventDto dto, int currentUserId, string? userRole = null);
         Task<SubEventDto?> UpdateSubEventAsync(int subEventId, UpdateSubEventDto dto, int currentUserId);
         Task<bool> DeleteSubEventAsync(int subEventId, int currentUserId);
 
@@ -47,5 +50,13 @@ namespace BusinessLayer.Services.Interfaces
         Task<EventAttendanceDto> CheckoutEventAsync(int eventId, int userId);
         Task<List<RegisteredEventFullDto>> GetRegisteredEventsFullAsync(int userId);
         Task UnregisterEventAsync(int eventId, int userId);
+
+        // Sub-event email and QR code
+        Task<GenerateQRCodeResponseDto> GenerateQRCodeForSubEventAsync(int subEventId, GenerateQRCodeDto dto);
+        Task<SendSubEventEmailResponseDto> SendEmailToSubEventAttendeesAsync(int subEventId, SendSubEventEmailDto dto, int currentUserId, IFileService fileService);
+
+        // Staff email
+        Task<StaffUploadExcelResponseDto> UploadExcelAndExtractEmailsAsync(Microsoft.AspNetCore.Http.IFormFile excelFile, IFileService fileService);
+        Task<StaffSendEmailResponseDto> SendEmailToAttendeesAsync(StaffSendEmailDto dto, int currentUserId);
     }
 }

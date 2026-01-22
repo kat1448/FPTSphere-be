@@ -42,6 +42,12 @@ namespace BusinessLayer.DTOs.Event
 
         public int? TemplateId { get; set; }
 
+        public int? CategoryId { get; set; }
+        public string? CategoryName { get; set; }
+
+        public int? TypeId { get; set; }
+        public string? TypeName { get; set; }
+
         public DateTime CreatedAt { get; set; }
         public DateTime? UpdatedAt { get; set; }
         public bool IsDeleted { get; set; }

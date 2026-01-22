@@ -98,7 +98,7 @@ namespace WebApi.Controllers
         }
 
         [HttpPost]
-        [Authorize(Roles = "Admin")]
+        [Authorize(Roles = "Admin,Director,Event Manager")]
         public async Task<IActionResult> Create([FromBody] CreateExternalLocationDto dto)
         {
             try

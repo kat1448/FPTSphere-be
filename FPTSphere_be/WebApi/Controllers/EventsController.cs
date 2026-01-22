@@ -5,24 +5,39 @@ using BusinessLayer.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using System.Linq;
+using System.IdentityModel.Tokens.Jwt;
 using BusinessLayer.Helpers;
 
 namespace WebApi.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [AllowAnonymous]
+    // Old code:
+    // [AllowAnonymous]
+    // Fixed: bỏ AllowAnonymous ở cấp controller để các action [Authorize] (như CreateEvent) bắt buộc phải authenticate
     public class EventsController : ControllerBase
 
     {
         private readonly IEventService _eventService;
         private readonly IEmailService _emailService;
+        private readonly IFileService _fileService;
+        private readonly ILocationBookingService _locationBookingService;
 
-        public EventsController(IEventService eventService) => _eventService = eventService;
+        public EventsController(
+            IEventService eventService,
+            IFileService fileService,
+            ILocationBookingService locationBookingService)
+        {
+            _eventService = eventService;
+            _fileService = fileService;
+            _locationBookingService = locationBookingService;
+        }
 
         // ==================== MAIN EVENT ENDPOINTS ====================
 
         [HttpGet]
+        [Authorize(Roles = "Admin,Event Manager,Director, Staff")]
         public async Task<IActionResult> GetEvents(
             [FromQuery] int page = 1, [FromQuery] int pageSize = 10,
             [FromQuery] int? statusId = null, [FromQuery] DateTime? startDate = null, [FromQuery] DateTime? endDate = null,
@@ -58,6 +73,7 @@ namespace WebApi.Controllers
         }
 
         [HttpGet("{id}")]
+        [Authorize(Roles = "Admin,Event Manager,Director, Staff")]
         public async Task<IActionResult> GetEventById(int id)
         {
             try
@@ -72,9 +88,40 @@ namespace WebApi.Controllers
             }
         }
 
+        /// <summary>
+        /// Dùng để hiển thị thông tin phòng đã được book trong UI chọn location.
+        /// </summary>
+        [HttpGet("location-bookings")]
+        [Authorize(Roles = "Admin,Event Manager,Director")]
+        public async Task<IActionResult> GetLocationBookings(
+            [FromQuery] int locationId,
+            [FromQuery] DateTime startTime,
+            [FromQuery] DateTime endTime,
+            [FromQuery] int? ignoreEventId = null,
+            [FromQuery] int? ignoreParentEventId = null)
+        {
+            try
+            {
+                var events = await _locationBookingService.GetLocationBookingsAsync(
+                    locationId, startTime, endTime, ignoreEventId, ignoreParentEventId);
+                return Ok(ApiResponse<List<EventDto>>.SuccessResult(
+                    events, $"Found {events.Count} bookings for location {locationId}"));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+
         [HttpPost]
-        [Authorize(Roles = "Admin,Event Manager")]
-        public async Task<IActionResult> CreateEvent([FromBody] CreateEventDto dto)
+        // Fixed: Only Manager, Director, and Admin can create events (Staff cannot create events)
+        [Authorize(Roles = "Admin,Event Manager,Director")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> CreateEvent([FromForm] CreateEventDto dto)
         {
             try
             {
@@ -87,11 +134,47 @@ namespace WebApi.Controllers
                     return BadRequest(ApiResponse<object>.ErrorResult("Invalid data", errors));
                 }
 
-                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
-                var result = await _eventService.CreateAsync(dto, userId);
+                // Old code:
+                // var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                
+                // Fixed: dùng HttpContext.User (claims đã được middleware JwtBearer validate),
+                // ưu tiên claim "UserId", sau đó fallback sang "sub"
+                var userIdClaimValue = User.Claims.FirstOrDefault(c => c.Type == "UserId")?.Value
+                                       ?? User.Claims.FirstOrDefault(c => c.Type == "sub")?.Value;
 
+                if (string.IsNullOrWhiteSpace(userIdClaimValue))
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot extract user ID from authenticated user claims"));
+                }
+
+                if (!int.TryParse(userIdClaimValue, out var userId) || userId <= 0)
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult($"Invalid user ID in claims: '{userIdClaimValue}'"));
+                }
+
+                // Old code:
+                // var result = await _eventService.CreateAsync(dto, userId);
+                // Fixed:
+                var userRole = User.FindFirst(ClaimTypes.Role)?.Value ?? "";
+                var result = await _eventService.CreateAsync(dto, userId, userRole);
+
+                // Determine success message based on role and status
+                string successMessage = "Event created successfully";
+                if (userRole == "Event Manager" && result.StatusId == 2) // PENDING_STATUS_ID
+                {
+                    successMessage = "Event created successfully and submitted for Director approval";
+                }
+                else if ((userRole == "Director" || userRole == "Admin") && result.StatusId == 3) // APPROVED_STATUS_ID
+                {
+                    successMessage = "Event created successfully and automatically approved";
+                }
+
+                // Old code:
+                // return CreatedAtAction(nameof(GetEventById), new { id = result.EventId },
+                //     ApiResponse<EventDto>.SuccessResult(result, "Event created"));
+                // Fixed:
                 return CreatedAtAction(nameof(GetEventById), new { id = result.EventId },
-                    ApiResponse<EventDto>.SuccessResult(result, "Event created"));
+                    ApiResponse<EventDto>.SuccessResult(result, successMessage));
             }
             catch (InvalidOperationException ex)
             {
@@ -105,7 +188,8 @@ namespace WebApi.Controllers
 
         [HttpPut("{id}")]
         [Authorize(Roles = "Admin,Event Manager")]
-        public async Task<IActionResult> UpdateEvent(int id, [FromBody] UpdateEventDto dto)
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UpdateEvent(int id, [FromForm] UpdateEventDto dto)
         {
             try
             {
@@ -118,7 +202,21 @@ namespace WebApi.Controllers
                     return BadRequest(ApiResponse<object>.ErrorResult("Invalid data", errors));
                 }
 
-                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                // Fixed: Parse userId correctly (same as CreateEvent)
+                var userIdClaimValue = User.Claims.FirstOrDefault(c => c.Type == "UserId")?.Value
+                                       ?? User.Claims.FirstOrDefault(c => c.Type == "sub")?.Value;
+
+                if (string.IsNullOrWhiteSpace(userIdClaimValue))
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot extract user ID from authenticated user claims"));
+                }
+
+                if (!int.TryParse(userIdClaimValue, out var userId) || userId <= 0)
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult($"Invalid user ID in claims: '{userIdClaimValue}'"));
+                }
+
+                // Service will handle file upload from IFormFile in DTO
                 var result = await _eventService.UpdateAsync(id, dto, userId);
 
                 if (result == null) return NotFound(ApiResponse<object>.ErrorResult("Event not found"));
@@ -144,15 +242,28 @@ namespace WebApi.Controllers
         {
             try
             {
-                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                // Fixed: dùng cùng cách parse userId như CreateEvent
+                var userIdClaimValue = User.Claims.FirstOrDefault(c => c.Type == "UserId")?.Value
+                                       ?? User.Claims.FirstOrDefault(c => c.Type == "sub")?.Value;
+
+                if (string.IsNullOrWhiteSpace(userIdClaimValue))
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot extract user ID from authenticated user claims"));
+                }
+
+                if (!int.TryParse(userIdClaimValue, out var userId) || userId <= 0)
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult($"Invalid user ID in claims: '{userIdClaimValue}'"));
+                }
+
                 var result = await _eventService.DeleteAsync(id, userId);
 
-                if (!result) return NotFound(ApiResponse<object>.ErrorResult("Event not found"));
-                return Ok(ApiResponse<object>.SuccessResult(null, "Event deleted"));
+                if (!result) return NotFound(ApiResponse<object>.ErrorResult("Event not found or already deleted"));
+                return Ok(ApiResponse<object>.SuccessResult(null, "Event deleted successfully"));
             }
-            catch (UnauthorizedAccessException)
+            catch (UnauthorizedAccessException ex)
             {
-                return Forbid();
+                return StatusCode(403, ApiResponse<object>.ErrorResult(ex.Message));
             }
             catch (InvalidOperationException ex)
             {
@@ -170,6 +281,7 @@ namespace WebApi.Controllers
         /// Get all sub-events of a main event
         /// </summary>
         [HttpGet("{id}/subevents")]
+        [Authorize(Roles = "Admin,Event Manager,Director")]
         public async Task<IActionResult> GetSubEvents(int id)
         {
             try
@@ -191,10 +303,13 @@ namespace WebApi.Controllers
 
         /// <summary>
         /// Create a new sub-event under a main event
+        /// Staff can create sub-events with pending status (requires Manager approval)
+        /// Supports banner image upload via multipart/form-data
         /// </summary>
-        [HttpPost("{id}/subevents")]
-        [Authorize(Roles = "Admin,Event Manager")]
-        public async Task<IActionResult> CreateSubEvent(int id, [FromBody] CreateSubEventDto dto)
+        [HttpPost("{eventId}/subevents")]
+        [Authorize(Roles = "Admin,Event Manager,Staff")]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> CreateSubEvent(int eventId, [FromForm] CreateSubEventDto dto)
         {
             try
             {
@@ -207,17 +322,46 @@ namespace WebApi.Controllers
                     return BadRequest(ApiResponse<object>.ErrorResult("Invalid data", errors));
                 }
 
-                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
-                var result = await _eventService.CreateSubEventAsync(id, dto, userId);
+                // Fixed: Parse userId correctly
+                var userIdClaimValue = User.Claims.FirstOrDefault(c => c.Type == "UserId")?.Value
+                                       ?? User.Claims.FirstOrDefault(c => c.Type == "sub")?.Value;
+
+                if (string.IsNullOrWhiteSpace(userIdClaimValue))
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot extract user ID from authenticated user claims"));
+                }
+
+                if (!int.TryParse(userIdClaimValue, out var userId) || userId <= 0)
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult($"Invalid user ID in claims: '{userIdClaimValue}'"));
+                }
+
+                // Get user role to determine initial status
+                var userRole = User.FindFirst(ClaimTypes.Role)?.Value ?? "";
+                var result = await _eventService.CreateSubEventAsync(eventId, dto, userId, userRole);
+
+                // Determine success message based on role and status
+                string successMessage = "Sub-event created successfully";
+                if ((userRole == "Staff" || userRole == "Event Manager") && result.StatusId == 2) // PENDING_STATUS_ID
+                {
+                    if (userRole == "Staff")
+                        successMessage = "Sub-event created successfully and submitted for Manager approval";
+                    else if (userRole == "Event Manager")
+                        successMessage = "Sub-event created successfully and submitted for Director approval";
+                }
+                else if ((userRole == "Director" || userRole == "Admin") && result.StatusId == 3) // APPROVED_STATUS_ID
+                {
+                    successMessage = "Sub-event created successfully and automatically approved";
+                }
 
                 return CreatedAtAction(
                     nameof(GetEventById),
-                    new { id = result.EventId },
-                    ApiResponse<SubEventDto>.SuccessResult(result, "Sub-event created successfully"));
+                    new { eventId = result.EventId },
+                    ApiResponse<SubEventDto>.SuccessResult(result, successMessage));
             }
-            catch (UnauthorizedAccessException)
+            catch (UnauthorizedAccessException ex)
             {
-                return Forbid();
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
             }
             catch (InvalidOperationException ex)
             {
@@ -231,10 +375,12 @@ namespace WebApi.Controllers
 
         /// <summary>
         /// Update a sub-event
+        /// Supports banner image upload via multipart/form-data
         /// </summary>
         [HttpPut("subevents/{subEventId}")]
         [Authorize(Roles = "Admin,Event Manager")]
-        public async Task<IActionResult> UpdateSubEvent(int subEventId, [FromBody] UpdateSubEventDto dto)
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UpdateSubEvent(int subEventId, [FromForm] UpdateSubEventDto dto)
         {
             try
             {
@@ -247,7 +393,20 @@ namespace WebApi.Controllers
                     return BadRequest(ApiResponse<object>.ErrorResult("Invalid data", errors));
                 }
 
-                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                // Fixed: Parse userId correctly
+                var userIdClaimValue = User.Claims.FirstOrDefault(c => c.Type == "UserId")?.Value
+                                       ?? User.Claims.FirstOrDefault(c => c.Type == "sub")?.Value;
+
+                if (string.IsNullOrWhiteSpace(userIdClaimValue))
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot extract user ID from authenticated user claims"));
+                }
+
+                if (!int.TryParse(userIdClaimValue, out var userId) || userId <= 0)
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult($"Invalid user ID in claims: '{userIdClaimValue}'"));
+                }
+
                 var result = await _eventService.UpdateSubEventAsync(subEventId, dto, userId);
 
                 if (result == null)
@@ -255,9 +414,9 @@ namespace WebApi.Controllers
 
                 return Ok(ApiResponse<SubEventDto>.SuccessResult(result, "Sub-event updated successfully"));
             }
-            catch (UnauthorizedAccessException)
+            catch (UnauthorizedAccessException ex)
             {
-                return Forbid();
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
             }
             catch (InvalidOperationException ex)
             {
@@ -278,7 +437,20 @@ namespace WebApi.Controllers
         {
             try
             {
-                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                // Fixed: Parse userId correctly
+                var userIdClaimValue = User.Claims.FirstOrDefault(c => c.Type == "UserId")?.Value
+                                       ?? User.Claims.FirstOrDefault(c => c.Type == "sub")?.Value;
+
+                if (string.IsNullOrWhiteSpace(userIdClaimValue))
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot extract user ID from authenticated user claims"));
+                }
+
+                if (!int.TryParse(userIdClaimValue, out var userId) || userId <= 0)
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult($"Invalid user ID in claims: '{userIdClaimValue}'"));
+                }
+
                 var result = await _eventService.DeleteSubEventAsync(subEventId, userId);
 
                 if (!result)
@@ -286,9 +458,9 @@ namespace WebApi.Controllers
 
                 return Ok(ApiResponse<object>.SuccessResult(null, "Sub-event deleted successfully"));
             }
-            catch (UnauthorizedAccessException)
+            catch (UnauthorizedAccessException ex)
             {
-                return Forbid();
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
             }
             catch (InvalidOperationException ex)
             {
@@ -395,7 +567,20 @@ namespace WebApi.Controllers
         {
             try
             {
-                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                // Fixed: Parse userId correctly
+                var userIdClaimValue = User.Claims.FirstOrDefault(c => c.Type == "UserId")?.Value
+                                       ?? User.Claims.FirstOrDefault(c => c.Type == "sub")?.Value;
+
+                if (string.IsNullOrWhiteSpace(userIdClaimValue))
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot extract user ID from authenticated user claims"));
+                }
+
+                if (!int.TryParse(userIdClaimValue, out var userId) || userId <= 0)
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult($"Invalid user ID in claims: '{userIdClaimValue}'"));
+                }
+
                 var result = await _eventService.SubmitForApprovalAsync(id, userId);
 
                 if (result == null)
@@ -405,8 +590,8 @@ namespace WebApi.Controllers
             }
             catch (UnauthorizedAccessException ex)
             {
-                // Không đủ quyền hoặc sai trạng thái
-                return Forbid(ex.Message);
+                // Fixed: Return BadRequest with clear error message instead of Forbid
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
             }
             catch (InvalidOperationException ex)
             {
@@ -481,7 +666,10 @@ namespace WebApi.Controllers
         #region Event approve/reject
         // Get all events pending
         [HttpGet("pending-approval")]
-        [Authorize(Roles = "Director,Admin")]
+        // Old code:
+        // [Authorize(Roles = "Director,Admin")]
+        // Fixed:
+        [Authorize(Roles = "Director,Admin,Event Manager")]
         public async Task<IActionResult> GetPendingApprovals()
         {
             try
@@ -499,19 +687,33 @@ namespace WebApi.Controllers
 
         // Approve event
         [HttpPost("{id}/approve")]
-        [Authorize(Roles = "Director,Admin")]
+        [Authorize(Roles = "Director,Admin,Event Manager")]
         public async Task<IActionResult> ApproveEvent(int id, [FromBody] EventDecisionDto dto)
         {
             try
             {
-                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                // Fixed: Parse userId correctly (same as CreateEvent)
+                var userIdClaimValue = User.Claims.FirstOrDefault(c => c.Type == "UserId")?.Value
+                                       ?? User.Claims.FirstOrDefault(c => c.Type == "sub")?.Value;
+
+                if (string.IsNullOrWhiteSpace(userIdClaimValue))
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot extract user ID from authenticated user claims"));
+                }
+
+                if (!int.TryParse(userIdClaimValue, out var userId) || userId <= 0)
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult($"Invalid user ID in claims: '{userIdClaimValue}'"));
+                }
+
                 var result = await _eventService.ApproveEventAsync(id, dto, userId);
 
                 return Ok(ApiResponse<EventDto>.SuccessResult(result, "Event approved successfully"));
             }
             catch (UnauthorizedAccessException ex)
             {
-                return Forbid(ex.Message);
+                // Fixed: Return BadRequest with clear error message instead of Forbid
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
             }
             catch (InvalidOperationException ex)
             {
@@ -525,19 +727,33 @@ namespace WebApi.Controllers
 
         // Reject event
         [HttpPost("{id}/reject")]
-        [Authorize(Roles = "Director,Admin")]
+        [Authorize(Roles = "Director,Admin,Event Manager")]
         public async Task<IActionResult> RejectEvent(int id, [FromBody] EventDecisionDto dto)
         {
             try
             {
-                var userId = int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+                // Fixed: Parse userId correctly (same as CreateEvent)
+                var userIdClaimValue = User.Claims.FirstOrDefault(c => c.Type == "UserId")?.Value
+                                       ?? User.Claims.FirstOrDefault(c => c.Type == "sub")?.Value;
+
+                if (string.IsNullOrWhiteSpace(userIdClaimValue))
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot extract user ID from authenticated user claims"));
+                }
+
+                if (!int.TryParse(userIdClaimValue, out var userId) || userId <= 0)
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult($"Invalid user ID in claims: '{userIdClaimValue}'"));
+                }
+
                 var result = await _eventService.RejectEventAsync(id, dto, userId);
 
                 return Ok(ApiResponse<EventDto>.SuccessResult(result, "Event rejected successfully"));
             }
             catch (UnauthorizedAccessException ex)
             {
-                return Forbid(ex.Message);
+                // Fixed: Return BadRequest with clear error message instead of Forbid
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
             }
             catch (InvalidOperationException ex)
             {
@@ -551,7 +767,7 @@ namespace WebApi.Controllers
 
         // Get approval history
         [HttpGet("{id}/approval-history")]
-        [Authorize(Roles = "Director,Admin,Event Manager")]
+        [AllowAnonymous]
         public async Task<IActionResult> GetApprovalHistory(int id)
         {
             try
@@ -718,6 +934,198 @@ namespace WebApi.Controllers
                 return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
             }
         }
+        #endregion
+
+        #region Sub-event Email and QR Code
+
+        /// <summary>
+        /// Generate QR code for sub-event registration form (Google Form URL)
+        /// Frontend must create Google Form first and provide the URL
+        /// </summary>
+        [HttpPost("subevents/{subEventId}/generate-qr")]
+        [AllowAnonymous]
+        public async Task<IActionResult> GenerateQRCodeForSubEvent(int subEventId, [FromBody] GenerateQRCodeDto dto)
+        {
+            try
+            {
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    return BadRequest(ApiResponse<object>.ErrorResult("Invalid data", errors));
+                }
+
+                var result = await _eventService.GenerateQRCodeForSubEventAsync(subEventId, dto);
+                return Ok(ApiResponse<GenerateQRCodeResponseDto>.SuccessResult(result, "QR code generated successfully"));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+
+        /// <summary>
+        /// Send email to sub-event attendees
+        /// Note: SubEventId is taken from URL path parameter
+        /// 
+        /// Features:
+        /// - Upload image file (will be uploaded to Cloudinary and embedded in email)
+        /// - Import Excel file (only Email column will be extracted)
+        /// - Use custom email list (optional, can be used instead of Excel file)
+        /// - View list of imported emails before sending
+        /// </summary>
+        [HttpPost("subevents/{subEventId}/send-email")]
+        [AllowAnonymous]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> SendEmailToSubEventAttendees(int subEventId, [FromForm] SendSubEventEmailDto dto)
+        {
+            try
+            {
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    return BadRequest(ApiResponse<object>.ErrorResult("Invalid data", errors));
+                }
+
+                // Validate that at least one email source is provided
+                if ((dto.ExcelFile == null || dto.ExcelFile.Length == 0) && 
+                    (dto.CustomEmailList == null || dto.CustomEmailList.Count == 0))
+                {
+                    return BadRequest(ApiResponse<object>.ErrorResult("Please provide either an Excel file or a custom email list"));
+                }
+
+                // Parse userId correctly
+                var userIdClaimValue = User.Claims.FirstOrDefault(c => c.Type == "UserId")?.Value
+                                       ?? User.Claims.FirstOrDefault(c => c.Type == "sub")?.Value;
+
+                if (string.IsNullOrWhiteSpace(userIdClaimValue))
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot extract user ID from authenticated user claims"));
+                }
+
+                if (!int.TryParse(userIdClaimValue, out var userId) || userId <= 0)
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult($"Invalid user ID in claims: '{userIdClaimValue}'"));
+                }
+
+                var result = await _eventService.SendEmailToSubEventAttendeesAsync(subEventId, dto, userId, _fileService);
+                return Ok(ApiResponse<SendSubEventEmailResponseDto>.SuccessResult(result, 
+                    $"Email sent successfully to {result.SuccessCount} out of {result.TotalRecipients} recipients"));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+
+        #endregion
+
+        #region Staff Email
+
+        /// <summary>
+        /// Upload Excel file with attendees list for Staff
+        /// File will be saved to Cloudinary and email addresses will be extracted
+        /// </summary>
+        [HttpPost("staff/upload-excel")]
+        [AllowAnonymous]
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UploadExcelAndExtractEmails([FromForm] StaffUploadExcelDto dto)
+        {
+            try
+            {
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    return BadRequest(ApiResponse<object>.ErrorResult("Invalid data", errors));
+                }
+
+                if (dto.ExcelFile == null || dto.ExcelFile.Length == 0)
+                {
+                    return BadRequest(ApiResponse<object>.ErrorResult("Excel file is required"));
+                }
+
+                var result = await _eventService.UploadExcelAndExtractEmailsAsync(dto.ExcelFile, _fileService);
+                return Ok(ApiResponse<StaffUploadExcelResponseDto>.SuccessResult(
+                    result,
+                    $"Excel file uploaded successfully. Extracted {result.EmailCount} email addresses."));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+
+        /// <summary>
+        /// Send email to attendees for Staff
+        /// Uses list of emails provided from Excel upload
+        /// </summary>
+        [HttpPost("staff/send-email")]
+        [AllowAnonymous]
+        public async Task<IActionResult> SendEmailToAttendees([FromBody] StaffSendEmailDto dto)
+        {
+            try
+            {
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    return BadRequest(ApiResponse<object>.ErrorResult("Invalid data", errors));
+                }
+
+                // Parse userId correctly
+                var userIdClaimValue = User.Claims.FirstOrDefault(c => c.Type == "UserId")?.Value
+                                       ?? User.Claims.FirstOrDefault(c => c.Type == "sub")?.Value;
+
+                if (string.IsNullOrWhiteSpace(userIdClaimValue))
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult("Cannot extract user ID from authenticated user claims"));
+                }
+
+                if (!int.TryParse(userIdClaimValue, out var userId) || userId <= 0)
+                {
+                    return Unauthorized(ApiResponse<object>.ErrorResult($"Invalid user ID in claims: '{userIdClaimValue}'"));
+                }
+
+                var result = await _eventService.SendEmailToAttendeesAsync(dto, userId);
+                return Ok(ApiResponse<StaffSendEmailResponseDto>.SuccessResult(result, 
+                    $"Email sent successfully to {result.SuccessCount} out of {result.TotalRecipients} recipients"));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+
         #endregion
     }
 }
