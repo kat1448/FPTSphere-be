@@ -356,7 +356,7 @@ namespace WebApi.Controllers
 
                 return CreatedAtAction(
                     nameof(GetEventById),
-                    new { eventId = result.EventId },
+                    new { id = result.EventId },
                     ApiResponse<SubEventDto>.SuccessResult(result, successMessage));
             }
             catch (UnauthorizedAccessException ex)
