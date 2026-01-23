@@ -1,0 +1,23 @@
+﻿services:
+  fptsphere-backend:
+    build:
+      context: .
+      dockerfile: WebApi/Dockerfile
+    container_name: fptsphere-api
+    ports:
+      - "8080:8080" # Map port 8080 của máy chủ vào 8080 của container
+    environment:
+      # --- CẤU HÌNH DATABASE (Ghi đè appsettings.json) ---
+      # Lưu ý: Dấu hai chấm gạch dưới (__ ) dùng để thay thế cấu trúc JSON lồng nhau
+      ConnectionStrings__DefaultConnection: "Server=capstone-server-2025.database.windows.net;Initial Catalog=EventManagementSystem;Persist Security Info=False;User ID=fptsphere-admin;Password=8+tr?jefriJ*xac;MultipleActiveResultSets=True;Encrypt=True;TrustServerCertificate=True;Connection Timeout=30;"
+      
+      # --- CẤU HÌNH JWT ---
+      Jwt__Key: "YourSuperSecretKeyThatIsAtLeast32CharactersLongForHS256Algorithm"
+      Jwt__Issuer: "FPTSphere"
+      Jwt__Audience: "FPTSphereUsers"
+
+      # --- CẤU HÌNH EMAIL & CLOUDINARY ---
+      EmailSettings__SenderEmail: "khanh0976109385@gmail.com"
+      EmailSettings__Password: "hmoahwyfulwwwrvk"
+      
+    restart: always

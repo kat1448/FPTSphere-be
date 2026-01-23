@@ -66,55 +66,6 @@ namespace BusinessLayer.Services.Implementations
 
         #region Auto status update
 
-        /// <summary>
-        /// Tự động cập nhật trạng thái dựa trên StartTime / EndTime.
-        /// Chỉ can thiệp các status: Approved / In Progress / Completed.
-        /// Trả về true nếu StatusId thay đổi.
-        /// </summary>
-        private bool AutoUpdateStatus(Event ev)
-        {
-            if (ev == null || ev.IsDeleted == true)
-                return false;
-
-            // Không tự động động chạm các trạng thái đặc biệt
-            if (ev.StatusId == DRAFT_STATUS_ID ||
-                ev.StatusId == PENDING_STATUS_ID ||
-                ev.StatusId == CANCELLED_STATUS_ID ||
-                ev.StatusId == REJECTED_STATUS_ID)
-            {
-                return false;
-            }
-
-            var now = DateTime.Now;
-            var oldStatus = ev.StatusId;
-            var newStatus = oldStatus;
-
-            if (now < ev.StartTime)
-            {
-                // Sắp diễn ra (đã được duyệt)
-                newStatus = APPROVED_STATUS_ID;
-            }
-            else if (ev.StartTime <= now && now <= ev.EndTime)
-            {
-                // Đang diễn ra
-                newStatus = INPROGRESS_STATUS_ID;
-            }
-            else if (now > ev.EndTime)
-            {
-                // Đã kết thúc
-                newStatus = COMPLETED_STATUS_ID;
-            }
-
-            if (newStatus != oldStatus)
-            {
-                ev.StatusId = newStatus;
-                ev.UpdatedAt = DateTime.Now;
-                return true;
-            }
-
-            return false;
-        }
-
           public async Task<List<EventAttendanceDto>> GetRegisteredEventsAsync(int userId)
             {
                 var attendances = await _unitOfWork.EventAttendances.GetByUserAsync(userId);
@@ -322,10 +273,95 @@ namespace BusinessLayer.Services.Implementations
             var ev = await _unitOfWork.Events.GetByIdAsync(id);
             if (ev == null) return null;
 
-            var permission = await _permissionHelper.CanModifyEventAsync(ev, currentUserId);
-            permission.ThrowIfDenied();
+            // Get current user role (if userId > 0, otherwise anonymous)
+            string userRole = "";
+            if (currentUserId > 0)
+            {
+                var currentUser = await _unitOfWork.Users.GetByIdAsync(currentUserId);
+                userRole = currentUser?.Role?.RoleName ?? "";
+            }
+            else
+            {
+                userRole = "Anonymous";
+                Console.WriteLine($"🔓 Anonymous access - userId = 0");
+            }
+
+            // ⭐ NEW: Check if StatusId is being updated
+            // If StatusId is provided, validate status transition and permission
+            bool isChangingStatus = dto.StatusId.HasValue && dto.StatusId.Value != ev.StatusId;
+
+            if (isChangingStatus)
+            {
+                var newStatusId = dto.StatusId.Value;
+                var currentStatusId = ev.StatusId;
+
+                Console.WriteLine($"🔄 Status change requested: Event {id}, Current: {currentStatusId}, New: {newStatusId}, User Role: {userRole}");
+
+                // Validate status transition
+                var statusTransitionValidation = _permissionHelper.ValidateStatusTransition(currentStatusId, newStatusId);
+                if (!statusTransitionValidation.IsAllowed)
+                {
+                    Console.WriteLine($"❌ Status transition validation failed: {statusTransitionValidation.DenyReason}");
+                    throw new InvalidOperationException(statusTransitionValidation.DenyReason);
+                }
+
+                // Check if user has permission to change status
+                // For anonymous access (userId = 0), allow status change for Approved/In Progress events
+                // For authenticated users, only Event Manager and Director can change status
+                bool canChangeStatus = false;
+
+                // Allowed transitions:
+                // - Approved (3) -> In Progress (4)
+                // - In Progress (4) -> Completed (5)
+                if ((currentStatusId == APPROVED_STATUS_ID && newStatusId == INPROGRESS_STATUS_ID) ||
+                    (currentStatusId == INPROGRESS_STATUS_ID && newStatusId == COMPLETED_STATUS_ID))
+                {
+                    // Allow anonymous access or authenticated Event Manager/Director/Admin
+                    if (currentUserId == 0 || userRole == "Event Manager" || userRole == "Director" || userRole == "Admin")
+                    {
+                        canChangeStatus = true;
+                        Console.WriteLine($"✅ Permission granted for status change. User role: {userRole}");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"❌ Permission denied. User role: {userRole} is not allowed to change status");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"❌ Invalid status transition: {currentStatusId} -> {newStatusId}");
+                }
+
+                if (!canChangeStatus)
+                {
+                    var errorMsg = $"Only Event Manager or Director can change status from {GetStatusName(currentStatusId)} to {GetStatusName(newStatusId)}";
+                    Console.WriteLine($"❌ {errorMsg}");
+                    throw new UnauthorizedAccessException(errorMsg);
+                }
+
+                // Update status
+                ev.StatusId = newStatusId;
+                Console.WriteLine($"✅ Status updated: {currentStatusId} -> {newStatusId}");
+            }
+            else
+            {
+                // If not changing status, use existing permission check for modification
+                // This only allows modification of Draft events
+                // Anonymous users (userId = 0) cannot modify events
+                if (currentUserId == 0)
+                {
+                    Console.WriteLine($"❌ Anonymous users cannot modify events without changing status");
+                    throw new UnauthorizedAccessException("Anonymous users cannot modify events. Only status changes are allowed.");
+                }
+
+                Console.WriteLine($"📝 Regular update (no status change). Checking modify permission...");
+                var permission = await _permissionHelper.CanModifyEventAsync(ev, currentUserId);
+                permission.ThrowIfDenied();
+            }
 
             // ⭐ Main event update: truyền currentEventId để tránh tự conflict chính nó
+            // If we're only changing status, we still need to validate the event data
+            // But we should be more lenient - only validate if fields are actually being changed
             var validation = await _validationHelper.ValidateEventDataAsync(
                 eventName: dto.EventName,
                 startTime: dto.StartTime,
@@ -340,10 +376,18 @@ namespace BusinessLayer.Services.Implementations
             );
 
             if (!validation.IsSuccess)
+            {
+                Console.WriteLine($"❌ Validation failed: {validation.ErrorMessage}");
                 throw new InvalidOperationException(validation.ErrorMessage);
+            }
+
+            Console.WriteLine($"✅ Validation passed");
 
             // Save existing BannerUrl before mapping
             var existingBannerUrl = ev.BannerUrl;
+
+            // Save StatusId if we changed it (to prevent AutoMapper from overwriting it)
+            var savedStatusId = ev.StatusId;
 
             // Upload banner file to Cloudinary if provided
             // Only update BannerUrl if a new file is uploaded
@@ -365,9 +409,16 @@ namespace BusinessLayer.Services.Implementations
                 }
             }
 
-            // Map other fields from DTO (BannerUrl will be handled separately)
+            // Map other fields from DTO (BannerUrl and StatusId will be handled separately)
             _mapper.Map(dto, ev);
-            
+
+            // Restore StatusId if we changed it (prevent AutoMapper from overwriting)
+            if (isChangingStatus)
+            {
+                ev.StatusId = savedStatusId;
+                Console.WriteLine($"✅ StatusId preserved after mapping: {ev.StatusId}");
+            }
+
             // Set BannerUrl: use new URL if file was uploaded, otherwise keep existing
             ev.BannerUrl = newBannerUrl ?? existingBannerUrl;
             ev.UpdatedAt = DateTime.Now;
@@ -377,9 +428,106 @@ namespace BusinessLayer.Services.Implementations
 
             var updated = await _unitOfWork.Events.GetByIdWithDetailsAsync(ev.EventId);
 
-            await AutoUpdateAndSaveIfNeededAsync(updated);
+            // ⭐ If we just changed status manually, skip auto-update to prevent reverting the change
+            // Only auto-update if we didn't manually change the status
+            if (!isChangingStatus)
+            {
+                await AutoUpdateAndSaveIfNeededAsync(updated);
+            }
 
             return _mapper.Map<EventDto>(updated);
+        }
+
+        /// <summary>
+        /// Helper method to get status name by ID
+        /// </summary>
+        private string GetStatusName(int statusId)
+        {
+            return statusId switch
+            {
+                DRAFT_STATUS_ID => "Draft",
+                PENDING_STATUS_ID => "Pending Approval",
+                APPROVED_STATUS_ID => "Approved",
+                INPROGRESS_STATUS_ID => "In Progress",
+                COMPLETED_STATUS_ID => "Completed",
+                CANCELLED_STATUS_ID => "Cancelled",
+                REJECTED_STATUS_ID => "Rejected",
+                _ => "Unknown"
+            };
+        }
+
+
+        /// <summary>
+        /// Tự động cập nhật trạng thái dựa trên StartTime / EndTime.
+        /// Chỉ can thiệp các status: Approved / In Progress / Completed.
+        /// Trả về true nếu StatusId thay đổi.
+        /// </summary>
+        private bool AutoUpdateStatus(Event ev)
+        {
+            if (ev == null || ev.IsDeleted == true)
+                return false;
+
+            // Không tự động động chạm các trạng thái đặc biệt
+            if (ev.StatusId == DRAFT_STATUS_ID ||
+                ev.StatusId == PENDING_STATUS_ID ||
+                ev.StatusId == CANCELLED_STATUS_ID ||
+                ev.StatusId == REJECTED_STATUS_ID)
+            {
+                return false;
+            }
+
+            // ⭐ NEW: Skip auto-update if status was manually changed recently (within last 5 minutes)
+            // This prevents auto-update from reverting manually changed status
+            if (ev.UpdatedAt.HasValue)
+            {
+                var timeSinceLastUpdate = DateTime.Now - ev.UpdatedAt.Value;
+                Console.WriteLine($"🔍 AutoUpdateStatus: Event {ev.EventId}, StatusId: {ev.StatusId}, UpdatedAt: {ev.UpdatedAt.Value}, Time since update: {timeSinceLastUpdate.TotalMinutes:F2} minutes");
+
+                if (timeSinceLastUpdate.TotalMinutes < 5)
+                {
+                    // If status is In Progress or Completed and was updated recently, 
+                    // it might have been manually changed, so skip auto-update
+                    if (ev.StatusId == INPROGRESS_STATUS_ID || ev.StatusId == COMPLETED_STATUS_ID)
+                    {
+                        Console.WriteLine($"⏭️ AutoUpdateStatus: Skipping auto-update for Event {ev.EventId} (status {ev.StatusId} was recently updated {timeSinceLastUpdate.TotalMinutes:F2} minutes ago, possibly manually changed)");
+                        return false;
+                    }
+                }
+            }
+            else
+            {
+                Console.WriteLine($"🔍 AutoUpdateStatus: Event {ev.EventId}, StatusId: {ev.StatusId}, UpdatedAt: null");
+            }
+
+            var now = DateTime.Now;
+            var oldStatus = ev.StatusId;
+            var newStatus = oldStatus;
+
+            if (now < ev.StartTime)
+            {
+                // Sắp diễn ra (đã được duyệt)
+                newStatus = APPROVED_STATUS_ID;
+            }
+            else if (ev.StartTime <= now && now <= ev.EndTime)
+            {
+                // Đang diễn ra
+                newStatus = INPROGRESS_STATUS_ID;
+            }
+            else if (now > ev.EndTime)
+            {
+                // Đã kết thúc
+                newStatus = COMPLETED_STATUS_ID;
+            }
+
+            if (newStatus != oldStatus)
+            {
+                Console.WriteLine($"⚠️ AutoUpdateStatus: Event {ev.EventId} status changed from {oldStatus} to {newStatus} (auto-update based on time)");
+                ev.StatusId = newStatus;
+                ev.UpdatedAt = DateTime.Now;
+                return true;
+            }
+
+            return false;
         }
 
         public async Task<bool> DeleteAsync(int id, int currentUserId)

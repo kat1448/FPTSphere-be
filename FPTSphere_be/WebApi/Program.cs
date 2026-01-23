@@ -11,13 +11,25 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using System;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Database
 builder.Services.AddDbContext<EventDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseSqlServer(
+        builder.Configuration.GetConnectionString("DefaultConnection"),
+        sqlOptions =>
+        {
+            // Cấu hình tự động thử lại khi kết nối thất bại
+            sqlOptions.EnableRetryOnFailure(
+                maxRetryCount: 5,           // Thử lại tối đa 5 lần
+                maxRetryDelay: TimeSpan.FromSeconds(30), // Đợi tối đa 30s mỗi lần
+                errorNumbersToAdd: null
+            );
+        }
+    ));
 
 // Repositories
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
@@ -151,7 +163,9 @@ builder.Services.AddCors(options =>
                                      // Port 5174 (Your current frontend) ← ADDED
                    "http://localhost:5174",
                    "http://127.0.0.1:5174",
-                   "https://localhost:5174"
+                   "https://localhost:5174",
+                   "https://15d87a6d.fptsphere-fe-deploy.pages.dev",
+                   "https://fptsphere-fe-deploy.pages.dev"
 
                )
                .AllowAnyMethod()
@@ -202,11 +216,8 @@ var app = builder.Build();
 // Middleware Pipeline
 app.UseCors("AllowFrontend");
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+app.UseSwagger();
+app.UseSwaggerUI();
 
 app.UseHttpsRedirection();
 app.UseAuthentication();

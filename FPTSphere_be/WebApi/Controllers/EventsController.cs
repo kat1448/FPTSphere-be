@@ -663,6 +663,88 @@ namespace WebApi.Controllers
             }
         }
 
+        /// <summary>
+        /// Change event status (Allow Anonymous)
+        /// </summary>
+        [HttpPut("{id}/change-status")]
+        [AllowAnonymous]
+        public async Task<IActionResult> ChangeEventStatus(int id, [FromBody] ChangeEventStatusDto dto)
+        {
+            try
+            {
+                Console.WriteLine($"🔄 ChangeEventStatus called - EventId: {id}, StatusId: {dto.StatusId}");
+
+                if (!ModelState.IsValid)
+                {
+                    var errors = ModelState.Values
+                        .SelectMany(v => v.Errors)
+                        .Select(e => e.ErrorMessage)
+                        .ToList();
+                    Console.WriteLine($"❌ ModelState invalid: {string.Join(", ", errors)}");
+                    return BadRequest(ApiResponse<object>.ErrorResult("Invalid data", errors));
+                }
+
+                // Get event first to check current status
+                var existingEvent = await _eventService.GetEventByIdAsync(id);
+                if (existingEvent == null)
+                {
+                    Console.WriteLine($"❌ Event not found: {id}");
+                    return NotFound(ApiResponse<object>.ErrorResult("Event not found"));
+                }
+
+                Console.WriteLine($"✅ Event found - Current StatusId: {existingEvent.StatusId}, New StatusId: {dto.StatusId}");
+
+                // Create UpdateEventDto with only StatusId changed
+                var updateDto = new UpdateEventDto
+                {
+                    EventName = existingEvent.EventName,
+                    Description = existingEvent.Description,
+                    StartTime = existingEvent.StartTime,
+                    EndTime = existingEvent.EndTime,
+                    ExpectedAttendees = existingEvent.ExpectedAttendees,
+                    EstimatedCost = existingEvent.EstimatedCost,
+                    LocationId = existingEvent.LocationId,
+                    ExternalLocationId = existingEvent.ExternalLocationId,
+                    TemplateId = existingEvent.TemplateId,
+                    CategoryId = existingEvent.CategoryId,
+                    TypeId = existingEvent.TypeId,
+                    StatusId = dto.StatusId // Only change status
+                };
+
+                Console.WriteLine($"📋 UpdateDto created - StatusId: {updateDto.StatusId?.ToString() ?? "null"}");
+
+                // Use a default userId (0) since this is anonymous
+                // The service will handle permission checks internally
+                Console.WriteLine($"🔄 Calling UpdateAsync with userId = 0 (anonymous)");
+                var result = await _eventService.UpdateAsync(id, updateDto, 0);
+
+                if (result == null)
+                {
+                    Console.WriteLine($"❌ Update failed for event: {id}");
+                    return NotFound(ApiResponse<object>.ErrorResult("Event not found"));
+                }
+
+                Console.WriteLine($"✅ Event status changed successfully - EventId: {id}, New StatusId: {result.StatusId}");
+                return Ok(ApiResponse<EventDto>.SuccessResult(result, "Event status changed successfully"));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                Console.WriteLine($"❌ UnauthorizedAccessException in ChangeEventStatus: {ex.Message}");
+                return StatusCode(403, ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (InvalidOperationException ex)
+            {
+                Console.WriteLine($"❌ InvalidOperationException in ChangeEventStatus: {ex.Message}");
+                return BadRequest(ApiResponse<object>.ErrorResult(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Exception in ChangeEventStatus: {ex.Message}");
+                Console.WriteLine($"❌ Stack trace: {ex.StackTrace}");
+                return StatusCode(500, ApiResponse<object>.ErrorResult($"Error: {ex.Message}"));
+            }
+        }
+
         #region Event approve/reject
         // Get all events pending
         [HttpGet("pending-approval")]

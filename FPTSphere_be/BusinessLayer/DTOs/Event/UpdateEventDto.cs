@@ -41,6 +41,14 @@ namespace BusinessLayer.DTOs.Event
         public int? CategoryId { get; set; }
 
         public int? TypeId { get; set; }
+
+        /// <summary>
+        /// StatusId to update event status
+        /// Allowed transitions:
+        /// - Approved (3) -> In Progress (4) - by Event Manager or Director
+        /// - In Progress (4) -> Completed (5) - by Event Manager or Director
+        /// </summary>
+        public int? StatusId { get; set; }
     }
 
 }
